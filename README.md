@@ -23,7 +23,8 @@ Builds with the Xcode Command Line Tools alone; full Xcode isn't required. There
 | Claude Code (CLI, IDE, desktop Code tab) | `~/.claude/projects/<project>/<session>.jsonl` |
 | Cowork | `~/Library/Application Support/Claude/local-agent-mode-sessions/*/*/local_<id>/.claude/projects/*/*.jsonl` (title from `local_<id>.json`) |
 | Grok (the `grok` coding agent) | `~/.grok/sessions/<cwd>/<id>/`: `events.jsonl` gives exact phases (model, tool, permission prompt), `chat_history.jsonl` the prompts, `hunk_records.jsonl` the files changed, `summary.json` the title |
-| AI apps without local logs (Muse, Grok Bot, ChatGPT, Perplexity, if installed) | Time in use only: AgentLens records when the app is frontmost and you've touched the keyboard or mouse in the last 5 minutes, appending to `~/Library/Application Support/AgentLens/app-usage.jsonl`. Grok Bot's local helper log (`~/.grokbot/local-exec-daemon.log`) records only connection events, not agent actions, so it isn't used. Muse and Grok Bot can also be followed by reading their windows through the Accessibility API once you click **Connect** and allow AgentLens in System Settings. |
+| ChatGPT app (its built-in Codex agent) and the `codex` CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`: each step is an `item_completed` event with exact start/end times (reasoning, reply, command, file change, web search); turns from `task_started`/`task_complete`; titles from `~/.codex/session_index.jsonl`. The current ChatGPT app identifies as `com.openai.codex`. |
+| AI apps without local logs (Muse, Grok Bot, Perplexity, if installed) | Time in use only: AgentLens records when the app is frontmost and you've touched the keyboard or mouse in the last 5 minutes, appending to `~/Library/Application Support/AgentLens/app-usage.jsonl`. Grok Bot's local helper log (`~/.grokbot/local-exec-daemon.log`) records only connection events, not agent actions, so it isn't used. Muse and Grok Bot can also be followed by reading their windows through the Accessibility API once you click **Connect** and allow AgentLens in System Settings. |
 
 Files are polled every 2s, and only newly appended bytes are parsed. Nothing leaves the machine.
 
@@ -85,6 +86,7 @@ So "active time" is real agent work, not how long a session stayed open. A **chu
 - `Notifier.swift`: finish / waiting notifications
 - `HooksAndSubagentsViews.swift`: hooks panel and diff sheet, subagent rows, notification switch
 - `GrokSessions.swift`: Grok session reader
+- `CodexSessions.swift`: ChatGPT/Codex session reader
 - `AppUsage.swift`, `AppsViews.swift`: AI app usage tracking and its views
 - `AXInspect.swift`, `WindowSessions.swift`: Accessibility access and the window reader for Muse and Grok Bot
 - `Theme.swift`, `Logo.swift`, `Visuals.swift`: thermal-HUD design system, logo and icon, charts

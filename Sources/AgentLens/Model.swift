@@ -6,6 +6,7 @@ enum Source: String {
     case grok = "Grok"
     case muse = "Muse"
     case grokBot = "Grok Bot"
+    case codex = "ChatGPT"
 }
 
 /// What an agent's time was spent on. Every second of active time lands in exactly one of these.

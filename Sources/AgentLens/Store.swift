@@ -77,6 +77,7 @@ final class Worker: @unchecked Sendable {
     private let hooks = HookLog()
     private let grok = GrokSessions()
     private let windows = WindowSessions()
+    private let codex = CodexSessions()
     private var summaries: [String: SessionSummary] = [:]
     private var busy = false
     private var lastDiscovery = Date.distantPast
@@ -102,6 +103,7 @@ final class Worker: @unchecked Sendable {
         var changed = !hookSessions.isEmpty
         if grok.poll() { changed = true }
         if windows.poll() { changed = true }
+        if codex.poll() { changed = true }
         for t in transcripts.values {
             let subs = (subagents[t.id] ?? [:]).values.sorted { $0.id < $1.id }
             t.poll()
@@ -113,7 +115,7 @@ final class Worker: @unchecked Sendable {
             changed = true
         }
         guard changed else { return nil }
-        return ScanResult(sessions: (Array(summaries.values) + grok.summaries + windows.summaries).sorted { $0.end > $1.end },
+        return ScanResult(sessions: (Array(summaries.values) + grok.summaries + windows.summaries + codex.summaries).sorted { $0.end > $1.end },
                           hookEvents: hooks.count, lastHookEvent: hooks.lastEvent)
     }
 

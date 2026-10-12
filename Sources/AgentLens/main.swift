@@ -17,6 +17,12 @@ if CommandLine.arguments.contains("--dump") {
     for (k, v) in Aggregate.top(all.byTool, 8) { print("  \(k.padding(toLength: 22, withPad: " ", startingAt: 0)) \(v.pretty)") }
     print("\nTop shell commands:")
     for (k, v) in Aggregate.top(all.byCommand, 8) { print("  \(k.padding(toLength: 22, withPad: " ", startingAt: 0)) \(v.pretty)") }
+    for s in sessions where s.source == .codex {
+        print("\nChatGPT/Codex: \(s.title.prefix(50)) — \(s.active.pretty) active, \(s.prompts) prompts, \(s.toolCalls) tools, \(s.errors) failed, files \(Set(s.chunks.flatMap(\.files)).count), \(s.outputTokens) tokens out — \(s.live(at: now))")
+        for c in s.chunks {
+            print("    • \(c.prompt.prefix(44).replacingOccurrences(of: "\n", with: " ")) [\(c.active.pretty)] " + c.steps.coalesced().prefix(5).map { "\($0.category.rawValue) \($0.duration.pretty)" }.joined(separator: " → "))
+        }
+    }
     for s in sessions where s.source == .grok {
         let steps = s.chunks.map { c in c.steps.coalesced().prefix(4).map { "\($0.category.rawValue) \($0.duration.pretty)" }.joined(separator: " → ") }
         print("\nGrok: \(s.title.prefix(50)) — \(s.active.pretty) active, \(s.prompts) prompts, \(s.toolCalls) tools, waiting \((s.totals.byCategory[.waiting] ?? 0).pretty), files \(Set(s.chunks.flatMap(\.files)).count)")
@@ -24,7 +30,7 @@ if CommandLine.arguments.contains("--dump") {
     }
     print("\nSessions:")
     for s in sessions.prefix(12) {
-        print("  [\(s.source == .cowork ? "CW" : s.source == .grok ? "GK" : "CC")] \(s.active.pretty.padding(toLength: 8, withPad: " ", startingAt: 0)) \(s.title.prefix(44))  — \(s.live(at: now))")
+        print("  [\(["Claude Code": "CC", "Cowork": "CW", "Grok": "GK", "ChatGPT": "GPT"][s.source.rawValue] ?? "AP")] \(s.active.pretty.padding(toLength: 8, withPad: " ", startingAt: 0)) \(s.title.prefix(44))  — \(s.live(at: now))")
         for c in s.children {
             let cats = c.totals.byCategory.sorted { $0.value > $1.value }.prefix(4).map { "\($0.key.rawValue) \($0.value.pretty)" }.joined(separator: ", ")
             print("       ↳ \(c.active.pretty.padding(toLength: 8, withPad: " ", startingAt: 0)) \(c.title.prefix(40))  [\(cats)]")

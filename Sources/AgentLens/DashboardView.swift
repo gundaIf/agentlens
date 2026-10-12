@@ -240,7 +240,7 @@ struct OverviewView: View {
         let working = states.filter(\.isWorking).count
         let waiting = states.filter { if case .waitingOnYou = $0 { return true }; return false }.count
         let seen = Set(store.sessions.filter { w.agg.sessionIDs.contains($0.id) }.map(\.source))
-        let sources = [Source.claudeCode, .cowork, .grok].filter(seen.contains).map(\.rawValue).joined(separator: " / ")
+        let sources = [Source.claudeCode, .cowork, .codex, .grok, .muse, .grokBot].filter(seen.contains).map(\.rawValue).joined(separator: " / ")
         let host = Host.current().localizedName ?? "This Mac"
 
         let (headline, tint): (String, Color) = {

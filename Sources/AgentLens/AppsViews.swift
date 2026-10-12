@@ -7,6 +7,7 @@ extension Source {
         case .cowork: return "person.crop.circle"
         case .grok: return "bolt.horizontal.circle"
         case .muse, .grokBot: return "macwindow"
+        case .codex: return "sparkle"
         }
     }
 }
@@ -19,6 +20,7 @@ extension SessionSummary {
         case .cowork: return "Cowork"
         case .grok: return project.isEmpty ? "Grok" : "Grok · \(project)"
         case .muse, .grokBot: return source.rawValue
+        case .codex: return project.isEmpty || project == "ChatGPT project" ? "ChatGPT" : "ChatGPT · \(project)"
         }
     }
 }
@@ -84,11 +86,18 @@ struct AppUsageRow: View {
 }
 
 extension AppUsageRow {
-    private var source: Source { app.id == "com.meta.endo" ? .muse : .grokBot }
+    private var source: Source? {
+        switch app.id {
+        case "com.meta.endo": return .muse
+        case "com.anysphere.sand": return .grokBot
+        case "com.openai.codex", "com.openai.chat": return .codex
+        default: return nil
+        }
+    }
 
-    /// The most recent session read from this app's window.
+    /// The most recent session for this app: read from its window, or (ChatGPT) from Codex's own logs.
     var liveSession: SessionSummary? {
-        guard app.readsWindow else { return nil }
+        guard let source else { return nil }
         return store.sessions.filter { $0.source == source }.max { $0.end < $1.end }
     }
 

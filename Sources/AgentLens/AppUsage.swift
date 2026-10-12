@@ -13,6 +13,8 @@ struct TrackedApp: Identifiable, Hashable {
     static let catalog: [TrackedApp] = [
         TrackedApp(id: "com.meta.endo", name: "Muse", readsWindow: true),
         TrackedApp(id: "com.anysphere.sand", name: "Grok Bot", readsWindow: true),
+        // The current ChatGPT app ships with Codex inside and identifies as com.openai.codex.
+        TrackedApp(id: "com.openai.codex", name: "ChatGPT"),
         TrackedApp(id: "com.openai.chat", name: "ChatGPT"),
         TrackedApp(id: "ai.perplexity.mac", name: "Perplexity"),
     ]
