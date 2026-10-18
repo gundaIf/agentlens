@@ -7,15 +7,18 @@ import Observation
 struct TrackedApp: Identifiable, Hashable {
     let id: String          // bundle identifier
     let name: String
-    /// AgentLens can follow sessions by reading this app's window (needs Accessibility permission).
-    var readsWindow = false
+    /// Set when AgentLens follows this app's sessions by reading its window (needs Accessibility
+    /// permission); the sessions it reads are labelled with this source.
+    var source: Source? = nil
+    var readsWindow: Bool { source != nil }
 
     static let catalog: [TrackedApp] = [
-        TrackedApp(id: "com.meta.endo", name: "Muse", readsWindow: true),
-        TrackedApp(id: "com.anysphere.sand", name: "Grok Bot", readsWindow: true),
+        TrackedApp(id: "com.meta.endo", name: "Muse", source: .muse),
+        TrackedApp(id: "com.anysphere.sand", name: "Grok Bot", source: .grokBot),
         // The current ChatGPT app ships with Codex inside and identifies as com.openai.codex.
-        TrackedApp(id: "com.openai.codex", name: "ChatGPT"),
-        TrackedApp(id: "com.openai.chat", name: "ChatGPT"),
+        // Codex work comes from ~/.codex; plain chats only show in the window.
+        TrackedApp(id: "com.openai.codex", name: "ChatGPT", source: .chatgptChat),
+        TrackedApp(id: "com.openai.chat", name: "ChatGPT", source: .chatgptChat),
         TrackedApp(id: "ai.perplexity.mac", name: "Perplexity"),
     ]
 

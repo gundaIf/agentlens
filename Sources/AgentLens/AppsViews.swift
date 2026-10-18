@@ -6,7 +6,7 @@ extension Source {
         case .claudeCode: return "chevron.left.forwardslash.chevron.right"
         case .cowork: return "person.crop.circle"
         case .grok: return "bolt.horizontal.circle"
-        case .muse, .grokBot: return "macwindow"
+        case .muse, .grokBot, .chatgptChat: return "macwindow"
         case .codex: return "sparkle"
         }
     }
@@ -20,6 +20,7 @@ extension SessionSummary {
         case .cowork: return "Cowork"
         case .grok: return project.isEmpty ? "Grok" : "Grok · \(project)"
         case .muse, .grokBot: return source.rawValue
+        case .chatgptChat: return "ChatGPT"
         case .codex: return project.isEmpty || project == "ChatGPT project" ? "ChatGPT" : "ChatGPT · \(project)"
         }
     }
@@ -86,19 +87,15 @@ struct AppUsageRow: View {
 }
 
 extension AppUsageRow {
-    private var source: Source? {
-        switch app.id {
-        case "com.meta.endo": return .muse
-        case "com.anysphere.sand": return .grokBot
-        case "com.openai.codex", "com.openai.chat": return .codex
-        default: return nil
-        }
+    private var sources: Set<Source> {
+        var s = Set(app.source.map { [$0] } ?? [])
+        if app.id == "com.openai.codex" || app.id == "com.openai.chat" { s.insert(.codex) }
+        return s
     }
 
     /// The most recent session for this app: read from its window, or (ChatGPT) from Codex's own logs.
     var liveSession: SessionSummary? {
-        guard let source else { return nil }
-        return store.sessions.filter { $0.source == source }.max { $0.end < $1.end }
+        store.sessions.filter { sources.contains($0.source) }.max { $0.end < $1.end }
     }
 
     func windowHeadline(_ s: LiveState) -> String {

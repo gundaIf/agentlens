@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-// Following AI apps that keep their sessions online (Muse, Grok Bot) by reading their window through
+// Following AI apps that keep their sessions online (Muse, Grok Bot, ChatGPT) by reading their window through
 // the Accessibility API. Nothing here is app-specific: it relies on signals every chat-style app shows.
 //
 //   conversation  = the window title
@@ -264,7 +264,7 @@ final class WindowSessions {
     /// Splits an app's events into sessions (new conversation title, or 30 min of silence) and builds
     /// one chunk per prompt, with the answering time as segments labelled by the step texts.
     static func build(_ events: [WindowEvent], app: TrackedApp, now: Date = Date()) -> [SessionSummary] {
-        let source: Source = app.id == "com.meta.endo" ? .muse : .grokBot
+        guard let source = app.source else { return [] }
         var groups: [(title: String, events: [WindowEvent])] = []
         var title = app.name
         for e in events {

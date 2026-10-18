@@ -115,7 +115,14 @@ final class Worker: @unchecked Sendable {
             changed = true
         }
         guard changed else { return nil }
-        return ScanResult(sessions: (Array(summaries.values) + grok.summaries + windows.summaries + codex.summaries).sorted { $0.end > $1.end },
+        // A Codex task inside ChatGPT also shows in its window; keep the exact ~/.codex version only.
+        let codexSessions = codex.summaries
+        let windowSessions = windows.summaries.filter { w in
+            w.source != .chatgptChat || !codexSessions.contains { c in
+                c.start <= w.end.addingTimeInterval(60) && c.end >= w.start.addingTimeInterval(-60)
+            }
+        }
+        return ScanResult(sessions: (Array(summaries.values) + grok.summaries + windowSessions + codexSessions).sorted { $0.end > $1.end },
                           hookEvents: hooks.count, lastHookEvent: hooks.lastEvent)
     }
 

@@ -23,16 +23,16 @@ Builds with the Xcode Command Line Tools alone; full Xcode isn't required. There
 | Claude Code (CLI, IDE, desktop Code tab) | `~/.claude/projects/<project>/<session>.jsonl` |
 | Cowork | `~/Library/Application Support/Claude/local-agent-mode-sessions/*/*/local_<id>/.claude/projects/*/*.jsonl` (title from `local_<id>.json`) |
 | Grok (the `grok` coding agent) | `~/.grok/sessions/<cwd>/<id>/`: `events.jsonl` gives exact phases (model, tool, permission prompt), `chat_history.jsonl` the prompts, `hunk_records.jsonl` the files changed, `summary.json` the title |
-| ChatGPT app (its built-in Codex agent) and the `codex` CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`: each step is an `item_completed` event with exact start/end times (reasoning, reply, command, file change, web search); turns from `task_started`/`task_complete`; titles from `~/.codex/session_index.jsonl`. The current ChatGPT app identifies as `com.openai.codex`. |
-| AI apps without local logs (Muse, Grok Bot, Perplexity, if installed) | Time in use only: AgentLens records when the app is frontmost and you've touched the keyboard or mouse in the last 5 minutes, appending to `~/Library/Application Support/AgentLens/app-usage.jsonl`. Grok Bot's local helper log (`~/.grokbot/local-exec-daemon.log`) records only connection events, not agent actions, so it isn't used. Muse and Grok Bot can also be followed by reading their windows through the Accessibility API once you click **Connect** and allow AgentLens in System Settings. |
+| ChatGPT app (its built-in Codex agent) and the `codex` CLI | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`: each step is an `item_completed` event with exact start/end times (reasoning, reply, command, file change, web search); turns from `task_started`/`task_complete`; titles from `~/.codex/session_index.jsonl`. The current ChatGPT app identifies as `com.openai.codex`. Plain chats never reach `~/.codex`; they're followed through the window (below) as **ChatGPT chat**. |
+| AI apps without local logs (Muse, Grok Bot, Perplexity, if installed) | Time in use only: AgentLens records when the app is frontmost and you've touched the keyboard or mouse in the last 5 minutes, appending to `~/Library/Application Support/AgentLens/app-usage.jsonl`. Grok Bot's local helper log (`~/.grokbot/local-exec-daemon.log`) records only connection events, not agent actions, so it isn't used. Muse, Grok Bot and ChatGPT can also be followed by reading their windows through the Accessibility API once you click **Connect** and allow AgentLens in System Settings. |
 
 Files are polled every 2s, and only newly appended bytes are parsed. Nothing leaves the machine.
 
 **Subagents.** Subagent work is read from `<session>/subagents/agent-<id>.jsonl`, with the description and agent type from `agent-<id>.meta.json`. Older transcripts write it inline as `isSidechain: true` lines, which are grouped by `agentId`. Each subagent becomes a child row under its session in the sidebar, and the session page gets a Subagents card. Each child has its own category breakdown and workflow. Subagents run alongside the parent's `Agent` call, so their time isn't added to the totals again.
 
-## Following Muse and Grok Bot (Accessibility)
+## Following Muse, Grok Bot and ChatGPT (Accessibility)
 
-Muse and Grok Bot keep their sessions online, so AgentLens follows them by reading their window. Click **Connect** next to the app in the menu bar dropdown. AgentLens opens Privacy & Security → Accessibility; switch AgentLens on there, and it starts following within two seconds (no restart). If it still says Connect after you switched it on, an entry from an older build is in the way: select AgentLens, click −, then Connect again. The dropdown explains this if it happens.
+Muse, Grok Bot and ChatGPT chats live online, so AgentLens follows them by reading their window. ChatGPT's window sessions are labelled **ChatGPT chat**. When one overlaps a Codex session from `~/.codex` (a Codex task shows in the window too), only the Codex version is kept, since its timing is exact. Click **Connect** next to the app in the menu bar dropdown. AgentLens opens Privacy & Security → Accessibility; switch AgentLens on there, and it starts following within two seconds (no restart). If it still says Connect after you switched it on, an entry from an older build is in the way: select AgentLens, click −, then Connect again. The dropdown explains this if it happens.
 
 The reader isn't specific to either app. It looks for signals every chat app shows:
 
@@ -88,7 +88,7 @@ So "active time" is real agent work, not how long a session stayed open. A **chu
 - `GrokSessions.swift`: Grok session reader
 - `CodexSessions.swift`: ChatGPT/Codex session reader
 - `AppUsage.swift`, `AppsViews.swift`: AI app usage tracking and its views
-- `AXInspect.swift`, `WindowSessions.swift`: Accessibility access and the window reader for Muse and Grok Bot
+- `AXInspect.swift`, `WindowSessions.swift`: Accessibility access and the window reader for Muse, Grok Bot and ChatGPT
 - `Theme.swift`, `Logo.swift`, `Visuals.swift`: thermal-HUD design system, logo and icon, charts
 - `MenuView.swift`: menu bar popover
 - `DashboardView.swift`: dashboard window
