@@ -69,6 +69,13 @@ if let flag = ["--install-hooks", "--uninstall-hooks"].first(where: CommandLine.
     exit(0)
 }
 
+// `AgentLens --ax-status`: whether macOS lets this build read other apps' windows. Run the copy inside
+// AgentLens.app, since the permission belongs to the app bundle.
+if CommandLine.arguments.contains("--ax-status") {
+    print("Accessibility: \(AXIsProcessTrusted() ? "granted" : "not granted") for \(Bundle.main.bundleIdentifier ?? "(no bundle)")")
+    exit(AXIsProcessTrusted() ? 0 : 1)
+}
+
 // `AgentLens --selftest-windows`: runs the window reader's logic on a made-up conversation.
 if CommandLine.arguments.contains("--selftest-windows") {
     let t0 = Date(timeIntervalSince1970: 1_760_000_000)

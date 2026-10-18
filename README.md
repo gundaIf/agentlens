@@ -34,6 +34,8 @@ Files are polled every 2s, and only newly appended bytes are parsed. Nothing lea
 
 Muse, Grok Bot and ChatGPT chats live online, so AgentLens follows them by reading their window. ChatGPT's window sessions are labelled **ChatGPT chat**. When one overlaps a Codex session from `~/.codex` (a Codex task shows in the window too), only the Codex version is kept, since its timing is exact. Click **Connect** next to the app in the menu bar dropdown. AgentLens opens Privacy & Security → Accessibility; switch AgentLens on there, and it starts following within two seconds (no restart). If it still says Connect after you switched it on, an entry from an older build is in the way: select AgentLens, click −, then Connect again. The dropdown explains this if it happens.
 
+This should only happen once. `build.sh` signs the app with a requirement that names just its bundle id (`local.agentlens`), not the default ad-hoc hash that changes on every build, so macOS treats new builds as the same app and keeps the permission. Check it with `AgentLens.app/Contents/MacOS/AgentLens --ax-status`.
+
 The reader isn't specific to either app. It looks for signals every chat app shows:
 
 - **Conversation:** the window title. A new title starts a new session.

@@ -45,7 +45,9 @@ PLIST
 if security find-identity -p codesigning 2>/dev/null | grep -q "AgentLens Dev"; then
   codesign --force --sign "AgentLens Dev" $APP
 else
-  echo "note: no 'AgentLens Dev' signing certificate; using an ad-hoc signature (permissions reset each build)"
-  codesign --force --sign - $APP
+  # Ad-hoc, but with an explicit designated requirement naming only the bundle id. By default an ad-hoc
+  # signature's requirement is its cdhash, which changes every build, so macOS treated each build as a
+  # new app and dropped its Accessibility permission. With this, one grant carries over to new builds.
+  codesign --force --sign - -r='designated => identifier "local.agentlens"' $APP
 fi
 echo "Built $PWD/$APP"
