@@ -49,7 +49,7 @@ struct AppUsageRow: View {
                 HStack(spacing: 4) {
                     // When we follow the window, say what the agent is doing; otherwise whether it's open.
                     if let s = liveSession, case let state = s.live(at: now), state.isVisible {
-                        Text(windowHeadline(state)).font(.hud(9.5, .semibold)).foregroundStyle(state.color)
+                        Text((app.readsWindow && s.source != .codex ? windowHeadline(state) : state.headline.uppercased())).font(.hud(9.5, .semibold)).foregroundStyle(state.color)
                         Text("·").foregroundStyle(.tertiary)
                         Text(s.title).foregroundStyle(.secondary).truncationMode(.tail)
                     } else {
@@ -90,6 +90,7 @@ extension AppUsageRow {
     private var sources: Set<Source> {
         var s = Set(app.source.map { [$0] } ?? [])
         if app.id == "com.openai.codex" || app.id == "com.openai.chat" { s.insert(.codex) }
+        if app.id == "com.anthropic.claudefordesktop" { s.formUnion([.claudeCode, .cowork]) }
         return s
     }
 

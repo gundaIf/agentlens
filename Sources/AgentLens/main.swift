@@ -86,6 +86,7 @@ if CommandLine.arguments.contains("--selftest-windows") {
     let frames = [
         snap(0, title: "Trip plan", input: "", buttons: ["send"], sig: 10),
         snap(1, title: "Trip plan", input: "Plan a 3 day trip to Goa\nwith beaches", sig: 10),
+        snap(1.5, title: "Trip plan", input: "Plan a 3 day trip to Goa\nwith beaches", sig: 10),
         snap(2, title: "Trip plan", input: "", buttons: ["stop generating"], sig: 11),
         snap(4, title: "Trip plan", input: "", buttons: ["stop generating"], labels: ["Searching the web…"], sig: 12),
         snap(9, title: "Trip plan", input: "", buttons: ["stop generating"], labels: ["Writing itinerary…"], sig: 20),
@@ -98,6 +99,7 @@ if CommandLine.arguments.contains("--selftest-windows") {
         snap(20, title: "Trip plan", input: "", buttons: ["send"], sig: 30),
         snap(21, title: "Trip plan", input: "", buttons: ["send"], sig: 30),
         snap(60, title: "Budget", input: "How much would that cost", sig: 31),
+        snap(60.5, title: "Budget", input: "How much would that cost", sig: 31),
         snap(61, title: "Budget", input: "", sig: 33),
         snap(62, title: "Budget", input: "", sig: 40),
         snap(63, title: "Budget", input: "", sig: 48),
@@ -121,6 +123,26 @@ if CommandLine.arguments.contains("--selftest-windows") {
             print("  • \(c.prompt) [\(c.active.pretty)] " + c.steps.map { "\($0.category.title) \($0.duration.pretty)\($0.labels.isEmpty ? "" : " (\($0.labels.joined(separator: ", ")))")" }.joined(separator: " → "))
         }
     }
+
+    // Flicker: a box that alternates between a placeholder-like value and empty every read, while
+    // the page animates. The old reader logged a "prompt" every second here; this should log none.
+    let flicker = WindowTracker()
+    var fl: [WindowEvent] = []
+    for i in 0..<120 {
+        fl += flicker.ingest(snap(Double(200 + i), title: "Muse", input: i % 2 == 0 ? "Ask Muse anything" : "", sig: 900 + i))
+    }
+    print("\nFlicker test: \(fl.filter { $0.kind == .prompt }.count) prompts (want 0)")
+
+    // App quits mid-answer: busy starts, then nothing more. After 90s it must stop showing as working.
+    let quit = WindowTracker()
+    var qe: [WindowEvent] = []
+    qe += quit.ingest(snap(400, title: "Draft", input: "Write a haiku", sig: 1))
+    qe += quit.ingest(snap(401, title: "Draft", input: "Write a haiku", sig: 1))
+    qe += quit.ingest(snap(402, title: "Draft", input: "", buttons: ["stop"], sig: 2))
+    qe += quit.ingest(snap(403, title: "Draft", input: "", buttons: ["stop"], sig: 3))
+    let later = t0.addingTimeInterval(403 + 600)
+    let q = WindowSessions.build(qe, app: app, now: later)
+    print("Quit-mid-answer test: \(q.count) session, live = \(q.first.map { "\($0.live(at: later))" } ?? "none") (want not working)")
     exit(0)
 }
 

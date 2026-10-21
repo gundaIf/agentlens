@@ -24,7 +24,7 @@ struct WindowSnapshot {
     let progress: Bool             // a progress or busy indicator is showing
 }
 
-enum WindowEventKind: String { case title, prompt, busyStart, busyEnd, step }
+enum WindowEventKind: String { case title, prompt, busyStart, busyEnd, step, beat }
 
 struct WindowEvent {
     let time: Date
@@ -44,9 +44,14 @@ enum WindowReader {
             AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
             enabled.insert(pid)
         }
-        let window = AXInspect.element(app, kAXFocusedWindowAttribute)
-            ?? AXInspect.element(app, kAXMainWindowAttribute)
-            ?? (AXInspect.attr(app, kAXWindowsAttribute) as? [AXUIElement])?.first
+        // The app's main conversation window only. Dialogs and sheets ("Log in", "Save",
+        // "Software Update") would otherwise turn into sessions of their own.
+        func isStandard(_ w: AXUIElement) -> Bool {
+            (AXInspect.string(w, kAXSubroleAttribute) ?? "AXStandardWindow") == "AXStandardWindow"
+        }
+        let windows = (AXInspect.attr(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+        let window = [AXInspect.element(app, kAXMainWindowAttribute), AXInspect.element(app, kAXFocusedWindowAttribute)]
+            .compactMap { $0 }.first(where: isStandard) ?? windows.first(where: isStandard)
         guard let window else { return nil }
 
         var buttons: [String] = [], labels: [String] = []
@@ -75,7 +80,9 @@ enum WindowReader {
                 }
             case "AXTextArea", "AXTextField":
                 if firstTextArea == nil, (AXInspect.attr(e, "AXEditable") as? Bool) ?? (role == "AXTextArea") {
-                    firstTextArea = AXInspect.string(e, kAXValueAttribute)
+                    let v = AXInspect.string(e, kAXValueAttribute)
+                    // Some apps report their placeholder ("Ask anything…") as the value.
+                    firstTextArea = (v != nil && v == AXInspect.string(e, kAXPlaceholderValueAttribute)) ? "" : v
                 }
             default: break
             }
@@ -108,6 +115,13 @@ final class WindowTracker {
     private var busy = false
     private var quietSince: Date?
     private var lastStep = ""
+    /// Text seen in the message box on two reads in a row (so flicker and other fields don't count).
+    private var typed = ""
+    private var typedCandidate = ""
+    /// The box just emptied; it becomes a prompt only if the conversation changes soon after.
+    private var pending: (text: String, time: Date)?
+    private var lastEmitted: (text: String, time: Date)?
+    private var lastBeat = Date.distantPast
 
     private static let stopWords = ["stop", "cancel", "interrupt"]
 
@@ -132,14 +146,32 @@ final class WindowTracker {
         if let sig = lastSignature, sig != s.textSignature { lastSignatureChange = s.time }
         lastSignature = s.textSignature
 
-        // Prompt: the box had text and is now empty.
+        // Prompt: text sat in the box, the box emptied, and the conversation then changed
+        // (your message appeared) within 6 seconds. Anything else is flicker, not a send.
         let input = (s.input ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if input.isEmpty, lastInput.count >= 2 {
-            let first = lastInput.components(separatedBy: .newlines).first ?? lastInput
-            out.append(WindowEvent(time: s.time, kind: .prompt, text: String(first.prefix(120))))
-            lastPrompt = s.time
+        if s.input != nil {
+            if input.count >= 2 {
+                if input == typedCandidate { typed = input } else { typedCandidate = input }
+            } else if input.isEmpty {
+                if typed.count >= 2 { pending = (typed, s.time) }
+                typed = ""; typedCandidate = ""
+            }
         }
-        if s.input != nil { lastInput = input }
+        if let p = pending {
+            if lastSignatureChange >= p.time {
+                let first = String((p.text.components(separatedBy: .newlines).first ?? p.text).prefix(120))
+                let repeatSend = lastEmitted.map { $0.text == first && p.time.timeIntervalSince($0.time) < 120 } ?? false
+                if !repeatSend {
+                    out.append(WindowEvent(time: p.time, kind: .prompt, text: first))
+                    lastEmitted = (first, p.time)
+                    lastPrompt = p.time
+                }
+                pending = nil
+            } else if s.time.timeIntervalSince(p.time) > 6 {
+                pending = nil
+            }
+        }
+        lastInput = input
 
         let stopShowing = s.buttons.contains { b in WindowTracker.stopWords.contains { b.contains($0) } }
         let streaming = s.time.timeIntervalSince(lastSignatureChange) < 2.5 && s.time.timeIntervalSince(lastPrompt) < 15 * 60
@@ -155,6 +187,11 @@ final class WindowTracker {
             if let label = s.statusLabels.last, label != lastStep {
                 lastStep = label
                 out.append(WindowEvent(time: s.time, kind: .step, text: label))
+            }
+            // Heartbeat, so a turn whose end we never saw (app quit, window closed) can be closed later.
+            if s.time.timeIntervalSince(lastBeat) >= 30 {
+                lastBeat = s.time
+                out.append(WindowEvent(time: s.time, kind: .beat))
             }
         } else if busy {
             // Require a moment of calm so a pause mid-reply doesn't end the turn.
@@ -229,13 +266,30 @@ enum WindowLog {
         }
     }
 
-    static func read(_ url: URL) -> [WindowEvent] {
+    static func read(_ url: URL) -> [WindowEvent] { dedupe(readRaw(url)) }
+
+    static func readRaw(_ url: URL) -> [WindowEvent] {
         guard let data = try? Data(contentsOf: url) else { return [] }
         return data.split(separator: 0x0A).compactMap { line in
             guard let o = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: String],
                   let t = o["t"].flatMap(iso.date), let k = o["k"].flatMap(WindowEventKind.init) else { return nil }
             return WindowEvent(time: t, kind: k, text: o["x"] ?? "")
         }
+    }
+
+    /// Older builds logged the same "prompt" every second when a window's text box flickered.
+    /// Keep one of any identical prompt repeated within two minutes.
+    static func dedupe(_ events: [WindowEvent]) -> [WindowEvent] {
+        var out: [WindowEvent] = []
+        var lastPrompt: [String: Date] = [:]
+        for e in events {
+            if e.kind == .prompt {
+                if let t = lastPrompt[e.text], e.time.timeIntervalSince(t) < 120 { lastPrompt[e.text] = e.time; continue }
+                lastPrompt[e.text] = e.time
+            }
+            out.append(e)
+        }
+        return out
     }
 }
 
@@ -321,15 +375,25 @@ final class WindowSessions {
                     step = (e.text, e.time)
                 case .busyEnd:
                     close(at: e.time); busySince = nil; step = nil
-                case .title: break
+                case .title, .beat: break
                 }
             }
-            let stillBusy = busySince != nil
+            // Busy with no word from the watcher for 90s (it beats every 30s): the turn ended unseen,
+            // e.g. the app quit or the window closed. Close it where we last heard of it.
+            var stillBusy = busySince != nil
+            if stillBusy, now.timeIntervalSince(last.time) > 90 {
+                close(at: last.time); busySince = nil; step = nil; stillBusy = false
+            }
             if stillBusy { close(at: max(last.time, now)) }
+            // A window that never got a prompt and barely did anything isn't a session.
+            let realPrompts = chunks.filter { $0.prompt != "(conversation in progress)" }.count
+            // Under 5s of answering is leftover flicker from older builds, not a real exchange.
+            let answering = segments.map(\.duration).reduce(0, +)
+            if (realPrompts == 0 && answering < 10) || answering < 5 { return nil }
 
             var totals = Aggregate()
             for s in segments { totals.add(s, project: app.name, session: id) }
-            let lastKind = evs.last!.kind
+            let lastKind = evs.last(where: { $0.kind != .beat })?.kind ?? .busyEnd
             return SessionSummary(
                 id: id, source: source, title: g.title, project: app.name, cwd: "", branch: nil,
                 start: first.time, end: stillBusy ? max(last.time, now) : last.time,
@@ -337,7 +401,7 @@ final class WindowSessions {
                 toolCalls: 0, errors: 0, outputTokens: 0, inputTokens: 0,
                 prompts: chunks.filter { $0.prompt != "(conversation in progress)" }.count,
                 lastEventTime: stillBusy ? now : last.time,
-                lastEventEndedTurn: !stillBusy && lastKind != .prompt,
+                lastEventEndedTurn: !stillBusy && (lastKind != .prompt || now.timeIntervalSince(last.time) > 90),
                 pendingTool: stillBusy ? ToolCall(id: "", name: step?.label ?? "Answering", detail: "", file: nil, start: step?.since ?? busySince!) : nil,
                 permissionSince: nil
             )

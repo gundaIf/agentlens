@@ -13,6 +13,8 @@ struct TrackedApp: Identifiable, Hashable {
     var readsWindow: Bool { source != nil }
 
     static let catalog: [TrackedApp] = [
+        // Claude Code and Cowork write full logs on this Mac, so Claude needs no window reading.
+        TrackedApp(id: "com.anthropic.claudefordesktop", name: "Claude"),
         TrackedApp(id: "com.meta.endo", name: "Muse", source: .muse),
         TrackedApp(id: "com.anysphere.sand", name: "Grok Bot", source: .grokBot),
         // The current ChatGPT app ships with Codex inside and identifies as com.openai.codex.
