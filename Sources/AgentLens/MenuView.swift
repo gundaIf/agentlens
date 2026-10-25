@@ -1,22 +1,52 @@
 import SwiftUI
 
-/// The popover under the menu bar icon: today at a glance, who's working now, and what stands out.
+enum MenuPage { case home, settings }
+
+/// The dropdown under the menu bar icon. Minimal by default (today's time and who's working);
+/// "More" opens the ribbon, AI apps and insights; the gear swaps in Settings.
 struct MenuView: View {
     @Environment(Store.self) private var store
+    @Environment(\.dropdownPresented) private var presented
     var animated = true
+    private let pageState: State<MenuPage>
+    private var page: MenuPage { pageState.wrappedValue }
+    private let settingsAdvanced: Bool
+
+    init(animated: Bool = true, page: MenuPage = .home, settingsAdvanced: Bool = false) {
+        self.animated = animated
+        self.pageState = State(initialValue: page)
+        self.settingsAdvanced = settingsAdvanced
+    }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            content(now: ctx.date)
+        ZStack(alignment: .top) {
+            if page == .home {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in home(now: ctx.date) }
+                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
+                                            removal: .move(edge: .leading).combined(with: .opacity)))
+            } else {
+                SettingsView(advanced: settingsAdvanced) { go(.home) }
+                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .move(edge: .trailing).combined(with: .opacity)))
+            }
         }
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
+        .clipped()
         .background(HUD.ink)
         .environment(\.colorScheme, .dark)
+        // Reopening the dropdown always starts on the main page.
+        .onChange(of: presented) { _, shown in if !shown { pageState.wrappedValue = .home } }
+    }
+
+    private func go(_ p: MenuPage) {
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) { pageState.wrappedValue = p }
     }
 
     @ViewBuilder
-    private func content(now: Date) -> some View {
+    private func home(now: Date) -> some View {
+        let prefs = Preferences.shared
+        let expanded = prefs.expanded
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
         let yesterday = today.addingTimeInterval(-86400)
@@ -25,9 +55,10 @@ struct MenuView: View {
         let live = store.sessions.filter { $0.live(at: now).isVisible }
             .sorted { rank($0.live(at: now)) < rank($1.live(at: now)) }
         let insights = Insights.list(stats, periodName: "today")
+        let apps = AppUsage.shared.apps.filter(\.isTracked)
 
         VStack(alignment: .leading, spacing: 0) {
-            // Header
+            // Header: mark, name, recording light, settings.
             HStack(spacing: 7) {
                 LensMark(size: 15)
                 Text("AGENTLENS").font(.hud(11, .bold)).tracking(1.6)
@@ -38,13 +69,13 @@ struct MenuView: View {
                         Text("REC").font(.hud(9.5, .bold)).foregroundStyle(HUD.alarm)
                     }
                 }
-                Text(now, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated))
-                    .font(.hud(10)).foregroundStyle(HUD.dim).textCase(.uppercase)
+                IconButton(symbol: "gearshape", help: "Settings") { go(.settings) }
+                    .keyboardShortcut(",", modifiers: .command)
             }
-            .padding(.horizontal, 14).padding(.top, 11).padding(.bottom, 9)
+            .padding(.horizontal, 14).padding(.top, 11).padding(.bottom, 8)
             .cascade(0)
 
-            // Today
+            // Today, in one line.
             VStack(alignment: .leading, spacing: 9) {
                 HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
@@ -52,23 +83,26 @@ struct MenuView: View {
                             Text(stats.agg.active.clock)
                                 .font(.hud(24, .semibold))
                                 .shadow(color: Category.thinking.color.opacity(0.45), radius: 6)
-                            Text("AGENT TIME TODAY").font(.hud(9.5, .semibold)).tracking(0.8).foregroundStyle(HUD.dim)
+                            Text("TODAY").font(.hud(9.5, .semibold)).tracking(0.8).foregroundStyle(HUD.dim)
                         }
                         Text(subline(stats)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
                     if stats.agg.active >= 1 {
-                        RingChart(values: stats.agg.byCategory, lineWidth: 5, gapDegrees: 4)
-                            .frame(width: 34, height: 34)
+                        RingChart(values: stats.agg.byCategory, lineWidth: 4.5, gapDegrees: 4)
+                            .frame(width: 30, height: 30)
                     }
                 }
-                DayRibbon(sessions: store.sessions, day: now, now: now, barHeight: 20)
-                    .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 4)
-                    .background(Color.black)
-                    .crt()
-                    .overlay(CornerBrackets(length: 5).stroke(HUD.bracket, lineWidth: 1))
-                if stats.agg.active >= 1 {
-                    CategoryKey(values: stats.agg.byCategory)
+                if expanded {
+                    VStack(alignment: .leading, spacing: 9) {
+                        DayRibbon(sessions: store.sessions, day: now, now: now, barHeight: 20)
+                            .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 4)
+                            .background(Color.black)
+                            .crt()
+                            .overlay(CornerBrackets(length: 5).stroke(HUD.bracket, lineWidth: 1))
+                        if stats.agg.active >= 1 { CategoryKey(values: stats.agg.byCategory) }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
             .padding(.horizontal, 14).padding(.bottom, 11)
@@ -87,43 +121,48 @@ struct MenuView: View {
                 if !store.loaded {
                     Text("Reading transcripts…").font(.system(size: 12)).foregroundStyle(.secondary)
                 } else if live.isEmpty {
-                    Text("No agents active in the last 30 minutes.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("All quiet. No agents active in the last 30 minutes.").font(.system(size: 12)).foregroundStyle(.secondary)
                 } else {
+                    let limit = expanded ? 4 : 3
                     VStack(spacing: 0) {
-                        ForEach(live.prefix(4)) { s in
+                        ForEach(live.prefix(limit)) { s in
                             LiveRow(session: s, now: now, animated: animated) {
                                 AppController.shared.openDashboard(select: s.id)
                             }
                         }
                     }
                     .padding(.horizontal, -6)
-                    if live.count > 4 {
-                        Text("+\(live.count - 4) more in the dashboard").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    if live.count > limit {
+                        Text("+\(live.count - limit) more in the dashboard").font(.system(size: 11)).foregroundStyle(.tertiary)
                     }
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .cascade(2)
 
-            if !AppUsage.shared.apps.isEmpty {
-                Hairline()
-                AppsSection(now: now)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .cascade(3)
-            }
-
-            if !insights.isEmpty {
-                Hairline()
-                VStack(alignment: .leading, spacing: 7) {
-                    Eyebrow("Worth knowing")
-                    ForEach(insights.prefix(2)) { InsightRow(insight: $0, compact: true) }
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !apps.isEmpty {
+                        Hairline()
+                        AppsSection(now: now)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                    }
+                    if !insights.isEmpty {
+                        Hairline()
+                        VStack(alignment: .leading, spacing: 7) {
+                            Eyebrow("Worth knowing")
+                            ForEach(insights.prefix(2)) { InsightRow(insight: $0, compact: true) }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                    }
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .cascade(4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .cascade(3)
             }
 
             Hairline()
 
+            // Footer: dashboard, and the More / Less control.
             HStack(spacing: 10) {
                 Button { AppController.shared.openDashboard(select: nil) } label: {
                     HStack(spacing: 5) {
@@ -138,21 +177,28 @@ struct MenuView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("d")
                 Spacer()
-                NotificationsToggle()
-                Spacer()
-                Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .help("Quit AgentLens")
-                    .keyboardShortcut("q")
+                Button {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { prefs.expanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(expanded ? "Less" : "More").font(.system(size: 11.5, weight: .medium))
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                            .rotationEffect(.degrees(expanded ? 180 : 0))
+                    }
+                    .foregroundStyle(HUD.dim)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(Color.white.opacity(0.06), in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Show less" : "Show the day ribbon, AI apps and insights")
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .cascade(5)
+            .cascade(4)
         }
     }
 
-    private func subline(_ s: WindowStats) -> String {
+        private func subline(_ s: WindowStats) -> String {
         guard s.agg.active >= 1 else { return "Nothing yet. Start an agent and it shows up here." }
         var parts = ["\(s.agg.sessionIDs.count) session\(s.agg.sessionIDs.count == 1 ? "" : "s")"]
         if let c = s.change {
@@ -251,5 +297,27 @@ struct InsightRow: View {
                 }
             }
         }
+    }
+}
+
+/// A quiet icon-only button that brightens on hover.
+struct IconButton: View {
+    let symbol: String
+    var help: String = ""
+    let action: () -> Void
+    private let hover = State(initialValue: false)
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(hover.wrappedValue ? Color.white : HUD.dim)
+                .frame(width: 22, height: 22)
+                .background(Color.white.opacity(hover.wrappedValue ? 0.08 : 0), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover.wrappedValue = h } }
+        .help(help)
     }
 }

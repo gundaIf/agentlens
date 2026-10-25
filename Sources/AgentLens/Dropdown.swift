@@ -112,6 +112,7 @@ final class DropdownController {
     private let panel = DropdownPanel()
     private weak var button: NSStatusBarButton?
     private var contentSize = CGSize(width: 340, height: 400)
+    private var shrinkWork: DispatchWorkItem?
     private var eventMonitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
     private var generation = 0
@@ -121,7 +122,7 @@ final class DropdownController {
     init<V: View>(button: NSStatusBarButton, content: V) {
         self.button = button
         let host = NSHostingView(rootView: DropdownChrome(state: state, onSize: { [weak self] size in
-            MainActor.assumeIsolated { self?.contentSize = size; self?.place() }
+            MainActor.assumeIsolated { self?.resize(to: size) }
         }) { content })
         host.sizingOptions = []
         panel.contentView = host
@@ -151,6 +152,22 @@ final class DropdownController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
             guard let self, self.generation == g else { return }   // reopened meanwhile
             self.panel.orderOut(nil)
+        }
+    }
+
+    /// Grow at once; shrink only after the content's own animation has played out, so sections
+    /// folding away (Less, leaving Settings) aren't cut off by the window mid-motion.
+    private func resize(to size: CGSize) {
+        shrinkWork?.cancel()
+        if size.height >= contentSize.height || !panel.isVisible {
+            contentSize = size
+            place()
+        } else {
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated { self?.contentSize = size; self?.place() }
+            }
+            shrinkWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.38, execute: work)
         }
     }
 

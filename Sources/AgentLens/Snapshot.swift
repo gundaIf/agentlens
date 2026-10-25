@@ -11,7 +11,15 @@ enum Snapshot {
         let bg = ScannerGround()
         for scheme in [ColorScheme.dark] {
             let suffix = scheme == .dark ? "-dark" : ""
+            // The dropdown's states. `expanded` is a saved preference, so put it back afterwards.
+            let wasExpanded = Preferences.shared.expanded
+            Preferences.shared.expanded = false
             save(MenuView(animated: false).environment(store).background(bg), "menu\(suffix)", dir, scheme)
+            Preferences.shared.expanded = true
+            save(MenuView(animated: false).environment(store).background(bg), "menu-expanded", dir, scheme)
+            Preferences.shared.expanded = wasExpanded
+            save(MenuView(animated: false, page: .settings).environment(store).background(bg), "settings", dir, scheme)
+            save(MenuView(animated: false, page: .settings, settingsAdvanced: true).environment(store).background(bg), "settings-advanced", dir, scheme)
             save(OverviewView(scrolls: false, range: .today).environment(store).frame(width: 1000, height: 1400).background(bg),
                  "overview-today\(suffix)", dir, scheme)
         }

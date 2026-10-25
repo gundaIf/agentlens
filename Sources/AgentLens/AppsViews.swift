@@ -87,12 +87,7 @@ struct AppUsageRow: View {
 }
 
 extension AppUsageRow {
-    private var sources: Set<Source> {
-        var s = Set(app.source.map { [$0] } ?? [])
-        if app.id == "com.openai.codex" || app.id == "com.openai.chat" { s.insert(.codex) }
-        if app.id == "com.anthropic.claudefordesktop" { s.formUnion([.claudeCode, .cowork]) }
-        return s
-    }
+    private var sources: Set<Source> { app.allSources }
 
     /// The most recent session for this app: read from its window, or (ChatGPT) from Codex's own logs.
     var liveSession: SessionSummary? {
@@ -141,7 +136,7 @@ struct AppsSection: View {
                 Spacer()
                 Text("time in use today").font(.system(size: 10.5)).foregroundStyle(.tertiary)
             }
-            ForEach(usage.apps) { app in
+            ForEach(usage.apps.filter(\.isTracked)) { app in
                 AppUsageRow(app: app, now: now, from: Calendar.current.startOfDay(for: now))
             }
             ConnectHint(now: now)
@@ -166,7 +161,7 @@ struct AppsCard: View {
                 Text(times.reduce(0, +).clock + " \(periodName)")
                     .font(.system(size: 11.5, weight: .medium)).monospacedDigit().foregroundStyle(.secondary)
             }
-            ForEach(usage.apps) { app in
+            ForEach(usage.apps.filter(\.isTracked)) { app in
                 AppUsageRow(app: app, now: now, from: from, maxTime: max(times.max() ?? 0, 1), compact: false)
             }
             Text("These apps keep their chats online, so AgentLens counts the time each one was in front while you were at the keyboard. It can't see what the AI did."

@@ -6,7 +6,10 @@ import Observation
 @MainActor
 @Observable
 final class Store {
-    private(set) var sessions: [SessionSummary] = []
+    /// Everything found, whatever the user tracks.
+    private(set) var allSessions: [SessionSummary] = []
+    /// What the UI shows: agents the user turned off in Settings are left out.
+    var sessions: [SessionSummary] { allSessions.filter { Preferences.shared.isTracked($0.source) } }
     private(set) var loaded = false
     private(set) var now = Date()
     var selection: String?
@@ -44,7 +47,7 @@ final class Store {
     }
 
     private func apply(_ r: ScanResult) {
-        sessions = r.sessions
+        allSessions = r.sessions
         hookEvents = r.hookEvents
         lastHookEvent = r.lastHookEvent
         loaded = true

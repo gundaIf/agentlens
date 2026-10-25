@@ -224,7 +224,7 @@ final class WindowWatcher {
 
     private func tick() {
         guard AXInspect.trusted, !busy else { return }
-        let targets = AppUsage.shared.apps.filter(\.readsWindow).compactMap { app -> (TrackedApp, pid_t)? in
+        let targets = AppUsage.shared.apps.filter { $0.readsWindow && $0.isTracked }.compactMap { app -> (TrackedApp, pid_t)? in
             NSRunningApplication.runningApplications(withBundleIdentifier: app.id).first.map { (app, $0.processIdentifier) }
         }
         guard !targets.isEmpty else { return }

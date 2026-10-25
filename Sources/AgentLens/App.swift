@@ -51,7 +51,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         Notifier.shared.check(store.sessions, now: now)
         guard let button = statusItem.button else { return }
         button.image = MenuGlyph.image(waiting ? .waiting : (working > 0 ? .working : .idle))
-        button.attributedTitle = working > 0
+        button.attributedTitle = working > 0 && Preferences.shared.showCount
             ? NSAttributedString(string: "\(working)", attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
                 .baselineOffset: 0.5,
