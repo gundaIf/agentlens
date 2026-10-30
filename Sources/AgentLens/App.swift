@@ -34,8 +34,12 @@ final class AppController: NSObject, NSApplicationDelegate {
                 let ms = Int(Date().timeIntervalSince(began) * 1000)
                 if let s = snap {
                     let c = s.chat
-                    let stop = s.buttons.contains { $0.contains("stop") || $0.contains("cancel") }
-                    out += "\(t)\t\(c?.conversation ?? "-")\t\(c?.count ?? -1)\t\(c?.lastFromUser ?? false)\t\(c?.lastLength ?? -1)\t\(c?.lastUserText?.count ?? -1)\t\(stop)\t\(s.progress)\t\((s.input ?? "").count)\t\(ms)"
+                    // Same rule as the tracker; name the buttons that match, for tuning.
+                    let stopNames = s.buttons.filter {
+                        $0.range(of: #"^(stop|cancel|interrupt)\b|\b(stop|cancel|interrupt)$"#, options: [.regularExpression, .caseInsensitive]) != nil
+                    }
+                    let stop = !stopNames.isEmpty
+                    out += "\(t)\t\(c?.conversation ?? "-")\t\(c?.count ?? -1)\t\(c?.lastFromUser ?? false)\t\(c?.lastLength ?? -1)\t\(c?.lastUserText?.count ?? -1)\t\(stop)\t\(s.progress)\t\((s.input ?? "").count)\t\(ms)\t\(stopNames.map { String($0.prefix(70)) })"
                     let ev = tracker.ingest(s).filter { $0.kind != .beat }.map(\.kind.rawValue)
                     out += ev.isEmpty ? "\n" : "\t→ " + ev.joined(separator: ",") + "\n"
                 } else {

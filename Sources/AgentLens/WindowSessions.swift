@@ -128,7 +128,11 @@ enum WindowReader {
                     textLength += v.count
                     let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
                     if t.count <= 48, t.hasSuffix("…") || t.hasSuffix("...") { labels.append(t) }
-                    if collectingSaid, !messages.isEmpty, let c = messages[messages.count - 1].content, c.count < 4000 {
+                    // The heading's own text ("You said:") also shows up as a static text: it isn't the message.
+                    let isSaidLabel = said.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil
+                    if isSaidLabel {
+                        // skip
+                    } else if collectingSaid, !messages.isEmpty, let c = messages[messages.count - 1].content, c.count < 4000 {
                         messages[messages.count - 1].content = c.isEmpty ? t : c + "\n" + t
                     } else if inLog, !t.isEmpty,
                               dateLabel.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) == nil {
@@ -203,6 +207,8 @@ final class WindowTracker {
     private var lastEmitted: (text: String, time: Date)?
     private var lastBeat = Date.distantPast
     private var lastChatCount: Int?
+    /// False until the first snapshot has been taken in (the baseline).
+    private var seenBefore = false
     private var lastFromUser = false
     private var lastUserText: String?
     private var newestText: (text: String, time: Date)?
@@ -217,7 +223,6 @@ final class WindowTracker {
         lastPrompt = t
     }
 
-    private static let stopWords = ["stop", "cancel", "interrupt"]
 
     func ingest(_ s: WindowSnapshot) -> [WindowEvent] {
         var out: [WindowEvent] = []
@@ -295,7 +300,11 @@ final class WindowTracker {
         }
         lastInput = input
 
-        let stopShowing = s.buttons.contains { b in WindowTracker.stopWords.contains { b.contains($0) } }
+        // A command, not a title: the word starts or ends the name ("Stop generating", Muse's "…message Stop").
+        // Links like "…Anthony Christopher…" or "…animaciones en stop motion" once kept ChatGPT "answering".
+        let stopShowing = s.buttons.contains { b in
+            b.range(of: #"^(stop|cancel|interrupt)\b|\b(stop|cancel|interrupt)$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        }
         let streaming = s.time.timeIntervalSince(lastSignatureChange) < 2.5 && s.time.timeIntervalSince(lastPrompt) < 15 * 60
         // Your message is the newest and no reply has started: the agent is working on it.
         // Capped at 3 minutes on its own: a message that only gets a reaction (❤️) never gets a reply.
@@ -306,7 +315,8 @@ final class WindowTracker {
             quietSince = nil
             if !busy {
                 // Authors unknown: the message that appeared just before answering began is your prompt.
-                if s.chat?.authorsKnown == false, s.time.timeIntervalSince(lastPrompt) > 20 {
+                // Not on the first look at a window: an answer already under way isn't a new exchange.
+                if s.chat?.authorsKnown == false, seenBefore, s.time.timeIntervalSince(lastPrompt) > 20 {
                     let recent = newestText.flatMap { s.time.timeIntervalSince($0.time) < 20 ? $0.text : nil }
                     emitPrompt(recent, at: s.time, into: &out)
                 }
@@ -331,6 +341,7 @@ final class WindowTracker {
                 out.append(WindowEvent(time: quietSince!, kind: .busyEnd))
             }
         }
+        seenBefore = true
         return out
     }
 }
@@ -502,7 +513,9 @@ final class WindowSessions {
                 chunks[chunks.count - 1] = c
             }
 
-            for e in evs {
+            var previous: Date?
+            for e in g.events {
+                defer { if e.kind != .title { previous = e.time } }
                 switch e.kind {
                 case .prompt:
                     if busySince != nil { close(at: e.time); step = nil; busySince = e.time }
@@ -514,7 +527,11 @@ final class WindowSessions {
                     step = (e.text, e.time)
                 case .busyEnd:
                     close(at: e.time); busySince = nil; step = nil
-                case .title, .beat: break
+                case .title:
+                    // A title is the first thing a (re)started watcher writes. An answer still open from a
+                    // previous run never got its end; close it where that run last heard of it.
+                    if busySince != nil, let p = previous { close(at: p); busySince = nil; step = nil }
+                case .beat: break
                 }
             }
             // Busy with no word from the watcher for 90s (it beats every 30s): the turn ended unseen,

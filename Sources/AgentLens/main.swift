@@ -187,6 +187,29 @@ if CommandLine.arguments.contains("--selftest-windows") {
               chat(616, "Build Midjourney Style", 10, you: false, len: 640, text: "Now try a wide shot")] {
         se += slow.ingest(f)
     }
+    let link = WindowTracker()
+    var le: [WindowEvent] = []
+    for i in 0..<10 {
+        le += link.ingest(snap(Double(700 + i), title: "Build Midjourney Style", input: "",
+                               buttons: ["open detailed pen and ink surreal drawings of anthony christopher",
+                                         "open tim burton: explorando su magia creativa con animaciones en stop motion"], sig: 5))
+    }
+    print("\nStop-in-a-word test: \(le.filter { $0.kind == .busyStart }.count) busy starts (want 0)")
+    let mid = WindowTracker()
+    var me: [WindowEvent] = []
+    for i in 0..<3 {
+        var f = snap(Double(800 + i), title: "Muse", input: "", buttons: ["message attach file dictate a message stop"], sig: 9)
+        f.chat = ChatLog(conversation: nil, count: 72, lastFromUser: false, lastUserText: nil, lastLength: 300 + i * 40,
+                         authorsKnown: false, lastText: "partial reply")
+        me += mid.ingest(f)
+    }
+    let realStops = ["stop generating", "cancel", "message attach file dictate a message stop"].map { b -> Int in
+        let real = WindowTracker()
+        _ = real.ingest(snap(900, title: "x", input: "", sig: 1))
+        return real.ingest(snap(901, title: "x", input: "", buttons: [b], sig: 1)).filter { $0.kind == .busyStart }.count
+    }
+    print("Real stop buttons test: \(realStops) (want [1, 1, 1])")
+    print("Launched-mid-answer test: \(me.filter { $0.kind == .prompt }.count) prompts, \(me.filter { $0.kind == .busyStart }.count) busy start (want 0, 1)")
     print("\nSlow-read test: \(se.filter { $0.kind == .prompt }.map(\.text)) (want [\"Now try a wide shot\"])")
     print("\nChat transcript test:")
     for e in ce where e.kind != .beat { print(String(format: "  %5.0fs", e.time.timeIntervalSince(t0)), e.kind.rawValue, e.text) }
