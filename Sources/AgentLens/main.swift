@@ -176,6 +176,18 @@ if CommandLine.arguments.contains("--selftest-windows") {
     ] + (513...520).map { chat(Double($0), "Sidekick", 9, you: false, len: 900) }
       + [chat(530, "Helena PA", 4, you: false, len: 200), chat(531, "Helena PA", 4, you: false, len: 200)]
     for f in frames2 { ce += ct.ingest(f) }
+
+    // ChatGPT read every few seconds: by the next read the reply is already below your message.
+    let slow = WindowTracker()
+    var se: [WindowEvent] = []
+    for f in [chat(600, "Build Midjourney Style", 8, you: false, len: 500, text: "Make it moodier"),
+              chat(604, "Build Midjourney Style", 10, you: false, len: 220, text: "Now try a wide shot"),
+              chat(608, "Build Midjourney Style", 10, you: false, len: 640, text: "Now try a wide shot"),
+              chat(612, "Build Midjourney Style", 10, you: false, len: 640, text: "Now try a wide shot"),
+              chat(616, "Build Midjourney Style", 10, you: false, len: 640, text: "Now try a wide shot")] {
+        se += slow.ingest(f)
+    }
+    print("\nSlow-read test: \(se.filter { $0.kind == .prompt }.map(\.text)) (want [\"Now try a wide shot\"])")
     print("\nChat transcript test:")
     for e in ce where e.kind != .beat { print(String(format: "  %5.0fs", e.time.timeIntervalSince(t0)), e.kind.rawValue, e.text) }
     for s in WindowSessions.build(ce, app: TrackedApp.catalog.first { $0.id == "com.anysphere.sand" }!, now: t0.addingTimeInterval(540)) {

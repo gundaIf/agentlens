@@ -249,10 +249,14 @@ final class WindowTracker {
 
         if let c = s.chat {
             if c.authorsKnown {
-                // Your message became the newest one, or your newest text changed. Not the count: apps like
-                // Grok Bot keep only the last few messages, so it can stay the same. Baseline first.
-                if lastChatCount != nil, c.lastFromUser,
-                   !lastFromUser || (c.lastUserText != nil && c.lastUserText != lastUserText) {
+                // A prompt is a change in your newest message, whether or not a reply has already appeared
+                // below it (slow-to-read apps like ChatGPT are only read every few seconds). Scrolling up to
+                // older messages doesn't change your newest one. Also: your message becoming the newest again
+                // with the same text (sending "yes" twice). Not the count: Grok Bot keeps only the latest few.
+                // Baseline first, so opening a chat doesn't replay it.
+                let newText = c.lastUserText != nil && lastUserText != nil && c.lastUserText != lastUserText
+                let flipped = c.lastFromUser && !lastFromUser
+                if lastChatCount != nil, newText || flipped {
                     emitPrompt(c.lastUserText, at: s.time, into: &out)
                 }
                 lastFromUser = c.lastFromUser
