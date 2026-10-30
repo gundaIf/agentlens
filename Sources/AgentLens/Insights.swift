@@ -20,6 +20,8 @@ struct WindowStats {
     let longest: (chunk: Chunk, session: SessionSummary)?
     let byHour: [Int: TimeInterval]
     let errorSession: SessionSummary?
+    /// Outcomes and friction across the sessions active in this window.
+    var findings = Findings()
 
     var perPrompt: TimeInterval? { prompts > 0 ? agg.active / Double(prompts) : nil }
 
@@ -55,9 +57,11 @@ enum Insights {
         var previous: TimeInterval?
         if let cf = compareFrom, let ct = compareTo { previous = activeTime(sessions, from: cf, to: ct) }
         let errorID = errorCounts.filter { $0.value > 0 }.max { $0.value < $1.value }?.key
-        return WindowStats(from: from, to: to, agg: agg, previousActive: previous, prompts: prompts,
-                           files: files, errors: errors, longest: longest.map { (chunk: $0.0, session: $0.1) },
-                           byHour: byHour, errorSession: sessions.first { $0.id == errorID })
+        var w = WindowStats(from: from, to: to, agg: agg, previousActive: previous, prompts: prompts,
+                            files: files, errors: errors, longest: longest.map { (chunk: $0.0, session: $0.1) },
+                            byHour: byHour, errorSession: sessions.first { $0.id == errorID })
+        w.findings = sessions.filter { agg.sessionIDs.contains($0.id) }.map(\.findings).combined
+        return w
     }
 
     static func activeTime(_ sessions: [SessionSummary], from: Date, to: Date) -> TimeInterval {
@@ -116,6 +120,22 @@ enum Insights {
                                detail: projects.map { "Most work in \($0)" } ?? ""))
         }
 
+        let f = w.findings
+        if f.hasOutcomes {
+            out.insert(Insight(symbol: "shippingbox.fill", tint: HUD.phosphor,
+                               title: "Shipped: \(f.outcomeSummary)",
+                               detail: "What your agents produced \(periodName)"), at: min(1, out.count))
+        }
+        if let (cmd, n) = f.failingCommands.first {
+            out.append(Insight(symbol: "arrow.triangle.2.circlepath", tint: Category.waiting.color,
+                               title: "\(cmd) failed \(n)×",
+                               detail: "The same command kept failing. Worth a closer look at the error."))
+        }
+        if let (file, n) = f.churnedFiles.first, n >= 8 {
+            out.append(Insight(symbol: "pencil.and.scribble", tint: Category.editing.color,
+                               title: "\(file) edited \(n)×",
+                               detail: "Rewritten again and again. The agent may need a clearer brief."))
+        }
         if w.errors > 0 {
             out.append(Insight(symbol: "exclamationmark.triangle", tint: Category.waiting.color,
                                title: "\(w.errors) failed tool call\(w.errors == 1 ? "" : "s")",

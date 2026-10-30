@@ -214,7 +214,7 @@ final class CodexSessions {
         let open = turns.last?.end == nil
         let title = titles[sessionID] ?? chunks.first.map { String($0.prompt.prefix(60)) } ?? "Codex session"
 
-        return SessionSummary(
+        var summary = SessionSummary(
             id: id, source: .codex, title: title, project: project,
             cwd: cwd, branch: nil,
             start: start, end: end,
@@ -224,5 +224,13 @@ final class CodexSessions {
             lastEventTime: end, lastEventEndedTurn: !open,
             pendingTool: nil, permissionSince: nil
         )
+        // Findings from Codex's command and file-change steps.
+        summary.findings = Findings.from(turns.flatMap(\.steps).compactMap { st -> ToolCall? in
+            guard st.tool != nil else { return nil }
+            return ToolCall(id: "", name: st.category == .shell ? "Bash" : (st.category == .editing ? "Edit" : st.tool!),
+                            detail: st.label, command: st.command, file: st.files.first, start: st.start,
+                            end: st.end, isError: st.failed)
+        })
+        return summary
     }
 }

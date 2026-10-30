@@ -49,6 +49,18 @@ Events go to `~/Library/Application Support/AgentLens/windows/<bundle id>.jsonl`
 
 **Signing.** Ad-hoc signatures change with every build, and macOS then treats AgentLens as a new app and drops its Accessibility permission. `build.sh` signs with an **AgentLens Dev** certificate when one exists (Keychain Access → Certificate Assistant → Create a Certificate…, Self Signed Root, Code Signing), which keeps permissions across builds.
 
+## Findings, search and export
+
+- **Outcomes:** commits, pushes, PRs and releases, detected from the commands agents ran (`git commit`, `git push`, `gh pr create`, `gh release create`). Shown on each session and as a "Shipped" insight.
+- **Went in circles:** a command family that failed 3+ times, and files edited 5+ times, per session and as insights.
+- **Waiting nudge:** with notifications on, one reminder when an agent has waited on you for 3+ minutes.
+- **Search:** the dashboard sidebar searches titles, projects, agents and every prompt.
+- **Export:** Settings → Advanced → Export sessions, or `AgentLens --export-csv <file>`.
+
+## Updates and health
+
+Settings → Advanced shows what AgentLens is reading and when it last saw activity. **Check for updates** asks GitHub for the latest release once at launch and once a day, and shows an **Update** tag in the dropdown when there's a newer version. It's the only network request AgentLens makes and carries no data about you; switch it off there. `build.sh` produces a universal app (Apple Silicon + Intel) when the Intel build succeeds.
+
 ## Hooks (optional, Claude Code only)
 
 The Overview has an **Install hooks…** button. It shows the exact `settings.json` diff and writes nothing until you confirm. It adds one command hook to `PreToolUse`, `PostToolUse`, `Notification`, `Stop` and `SubagentStop`, saves a backup as `settings.json.agentlens-backup`, and keeps your other settings and hooks. The hook is `~/Library/Application Support/AgentLens/hook.pl` (Perl ships with macOS). It appends one line per call to `events.jsonl` in the same folder: time, event, session id, tool name and id, notification type. It prints nothing and always exits 0, so it can't block or change a tool call. Restart running Claude Code sessions to pick it up. **Remove hooks…** takes out only the AgentLens entries.

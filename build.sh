@@ -3,7 +3,15 @@
 set -e
 cd "${0:A:h}"
 swift build -c release --build-system native
+# Universal binary (Apple Silicon + Intel). Falls back to Apple Silicon only if the Intel build fails.
 BIN=.build/release/AgentLens
+if swift build -c release --build-system native --arch x86_64 >/dev/null 2>&1; then
+  mkdir -p .build/universal
+  lipo -create .build/arm64-apple-macosx/release/AgentLens .build/x86_64-apple-macosx/release/AgentLens -output .build/universal/AgentLens
+  BIN=.build/universal/AgentLens
+else
+  echo "note: Intel build failed; this app runs on Apple Silicon only"
+fi
 APP=AgentLens.app
 
 # App icon: render the artwork, then pack every size macOS asks for.

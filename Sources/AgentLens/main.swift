@@ -36,6 +36,13 @@ if CommandLine.arguments.contains("--dump") {
             print("       ↳ \(c.active.pretty.padding(toLength: 8, withPad: " ", startingAt: 0)) \(c.title.prefix(40))  [\(cats)]")
         }
     }
+    print("\nFindings:")
+    for s in sessions where s.findings.hasOutcomes || s.findings.hasFriction {
+        let fail = s.findings.failingCommands.prefix(3).map { "\($0.0) ×\($0.1)" }.joined(separator: ", ")
+        let churn = s.findings.churnedFiles.prefix(3).map { "\($0.0) ×\($0.1)" }.joined(separator: ", ")
+        print("  \(s.title.prefix(40)): \(s.findings.outcomeSummary.isEmpty ? "—" : s.findings.outcomeSummary)"
+              + (fail.isEmpty ? "" : " | failing: \(fail)") + (churn.isEmpty ? "" : " | churn: \(churn)"))
+    }
     let withSubagents = sessions.filter { !$0.children.isEmpty }
     print("\nSubagents: \(withSubagents.map(\.children.count).reduce(0, +)) in \(withSubagents.count) sessions")
     for s in withSubagents.prefix(4) where !sessions.prefix(12).contains(where: { $0.id == s.id }) {
@@ -52,6 +59,14 @@ if CommandLine.arguments.contains("--dump") {
             print("  • \(c.prompt.prefix(50).replacingOccurrences(of: "\n", with: " ")) [\(c.active.pretty), \(c.toolCalls) tools]\n      \(steps)")
         }
     }
+    exit(0)
+}
+
+// `AgentLens --export-csv <file>`: every session as CSV (same as Settings → Export sessions).
+if let i = CommandLine.arguments.firstIndex(of: "--export-csv"), i + 1 < CommandLine.arguments.count {
+    let sessions = Worker().scanNow()?.sessions ?? []
+    try? Exporter.csv(sessions).write(toFile: CommandLine.arguments[i + 1], atomically: true, encoding: .utf8)
+    print("Exported \(sessions.count) sessions to \(CommandLine.arguments[i + 1])")
     exit(0)
 }
 

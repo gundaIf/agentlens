@@ -8,6 +8,8 @@ import Observation
 final class Store {
     /// Everything found, whatever the user tracks.
     private(set) var allSessions: [SessionSummary] = []
+    /// When new agent activity was last read (for the health line in Settings).
+    private(set) var lastChange: Date?
     /// What the UI shows: agents the user turned off in Settings are left out.
     var sessions: [SessionSummary] { allSessions.filter { Preferences.shared.isTracked($0.source) } }
     private(set) var loaded = false
@@ -48,6 +50,7 @@ final class Store {
 
     private func apply(_ r: ScanResult) {
         allSessions = r.sessions
+        lastChange = Date()
         hookEvents = r.hookEvents
         lastHookEvent = r.lastHookEvent
         loaded = true

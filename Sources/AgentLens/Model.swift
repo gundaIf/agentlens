@@ -233,6 +233,8 @@ struct SessionSummary: Identifiable {
 
     // Subagents: a parent session lists its children; a child points back at its parent.
     var children: [SessionSummary] = []
+    /// Outcomes (commits, PRs…) and friction (repeated failures, churned files).
+    var findings = Findings()
     var parentID: String? = nil
     var agentType: String? = nil
     var childrenOrNil: [SessionSummary]? { children.isEmpty ? nil : children }

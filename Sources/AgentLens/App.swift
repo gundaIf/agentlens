@@ -25,6 +25,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         store.start()
         AppUsage.shared.start()
         AXAccess.shared.start()
+        UpdateChecker.shared.start()
         WindowWatcher.shared.start()
         Notifier.shared.setUp()
 

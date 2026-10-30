@@ -39,6 +39,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// Sessions already reminded about their current wait.
+    @ObservationIgnored private var nudged = Set<String>()
+
     func check(_ sessions: [SessionSummary], now: Date) {
         var next: [String: Phase] = [:]
         for s in sessions {
@@ -51,6 +54,16 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             case .idle: phase = .idle
             }
             next[s.id] = phase
+            // One reminder when an agent has sat waiting on you for 3+ minutes.
+            if case .waitingOnYou(let reason, let since) = state {
+                if seeded, enabled, now.timeIntervalSince(since) >= 180, !nudged.contains(s.id) {
+                    nudged.insert(s.id)
+                    let mins = Int(now.timeIntervalSince(since) / 60)
+                    post(s, title: "\(s.title) has waited \(mins) min", body: "\(reason). It's paused until you answer.")
+                }
+            } else {
+                nudged.remove(s.id)
+            }
             // The first pass only records where things stand; it shouldn't replay old news.
             guard seeded, enabled, let before = last[s.id], before != phase else { continue }
             switch (before, state) {

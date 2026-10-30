@@ -26,7 +26,7 @@ enum Snapshot {
         save(OverviewView(scrolls: false, range: .week).environment(store).frame(width: 1000, height: 1400).background(bg),
              "overview-week", dir, .dark)
         if let s = store.sessions.max(by: { $0.active < $1.active }) {
-            save(SessionDetail(session: s, scrolls: false).environment(store).frame(width: 1000, height: 1500).background(bg),
+            save(SessionDetail(session: s, scrolls: false).environment(store).frame(width: 1000, height: 1500, alignment: .top).background(bg),
                  "session", dir, .dark)
         }
         if let s = store.sessions.filter({ !$0.children.isEmpty }).max(by: { $0.children.count < $1.children.count }) {

@@ -293,6 +293,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
 
                 if advanced {
+                    statusGroup
                     SettingsGroup {
                         SettingsRow(symbol: "hand.raised.fill", tint: Color(hex: 0x30B0C7), title: "Accessibility",
                                     subtitle: AXAccess.shared.trusted ? "Following Muse, Grok Bot and ChatGPT chats"
@@ -313,7 +314,7 @@ struct SettingsView: View {
                             HUDSwitch(isOn: prefs.keepHistory) { prefs.keepHistory = $0 }
                         }
                         SettingsRow(symbol: "folder.fill", tint: Color(hex: 0x3D7BFF), title: "Data folder",
-                                    subtitle: "Usage, hook and window logs. Nothing leaves this Mac.") {
+                                    subtitle: "Usage, history, hook and window logs. Your data stays on this Mac.") {
                             RowButton(title: "Show") {
                                 try? FileManager.default.createDirectory(at: Paths.support, withIntermediateDirectories: true)
                                 NSWorkspace.shared.activateFileViewerSelecting([Paths.support])
@@ -343,6 +344,43 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 12)
         .onAppear { prefs.refreshLogin() }
+    }
+}
+
+extension SettingsView {
+    /// Is AgentLens reading anything, is it current, and can it export.
+    @ViewBuilder var statusGroup: some View {
+        let updates = UpdateChecker.shared
+        let all = store.allSessions
+        let healthy = store.loaded && !all.isEmpty
+        let counts = Dictionary(grouping: all, by: \.source).sorted { $0.value.count > $1.value.count }
+            .map { "\($0.value.count) \($0.key.rawValue)" }
+        SettingsGroup {
+            SettingsRow(symbol: healthy ? "checkmark.seal.fill" : "exclamationmark.triangle.fill",
+                        tint: healthy ? Color(hex: 0x2FB344) : Color(hex: 0xF29B38),
+                        title: healthy ? "Reading \(all.count) sessions" : (store.loaded ? "No agent logs found" : "Starting…"),
+                        subtitle: healthy
+                            ? (counts.prefix(3).joined(separator: " · ") + (store.lastChange.map { " · updated \(Date().timeIntervalSince($0).clock) ago" } ?? ""))
+                            : "Start a Claude Code, Cowork, ChatGPT or Grok session and it shows up here.") {
+                EmptyView()
+            }
+            SettingsRow(symbol: "arrow.down.circle.fill", tint: Color(hex: 0x3D7BFF), title: "Check for updates",
+                        subtitle: !updates.enabled ? "Off. AgentLens won't contact GitHub."
+                            : updates.updateAvailable ? "Version \(updates.latest ?? "") is out"
+                            : updates.failed ? "Couldn't reach GitHub"
+                            : updates.latest != nil ? "You're up to date" : "Checking…") {
+                if updates.updateAvailable {
+                    RowButton(title: "Download", tint: HUD.phosphor) {
+                        NSWorkspace.shared.open(updates.latestURL ?? UpdateChecker.releasesURL)
+                    }
+                }
+                HUDSwitch(isOn: updates.enabled) { updates.enabled = $0 }
+            }
+            SettingsRow(symbol: "square.and.arrow.up.fill", tint: Color(hex: 0x30B0C7), title: "Export sessions",
+                        subtitle: "Every tracked session as a CSV file", divider: false) {
+                RowButton(title: "Export…") { Exporter.exportCSV(store.sessions) }
+            }
+        }
     }
 }
 

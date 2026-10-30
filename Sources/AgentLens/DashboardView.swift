@@ -48,6 +48,15 @@ struct ScannerGround: View {
 private struct Sidebar: View {
     @Environment(Store.self) private var store
     @Binding var selection: String?
+    private let queryState = State(initialValue: "")
+    private var query: String { queryState.wrappedValue.trimmingCharacters(in: .whitespaces) }
+
+    /// Title, project, agent or any prompt in the session.
+    private func matches(_ s: SessionSummary) -> Bool {
+        let q = query.lowercased()
+        if s.title.lowercased().contains(q) || s.place.lowercased().contains(q) || s.source.rawValue.lowercased().contains(q) { return true }
+        return s.chunks.contains { $0.prompt.lowercased().contains(q) }
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 2)) { ctx in
@@ -67,11 +76,21 @@ private struct Sidebar: View {
                 .padding(.vertical, 3)
                 .tag(overviewID)
 
-                group("Live", live, now)
-                group("Today", rest.filter { $0.end >= startOfDay }, now)
-                group("Last 7 days", rest.filter { $0.end < startOfDay && $0.end >= weekStart }, now)
-                group("Earlier", rest.filter { $0.end < weekStart }, now)
+                if query.isEmpty {
+                    group("Live", live, now)
+                    group("Today", rest.filter { $0.end >= startOfDay }, now)
+                    group("Last 7 days", rest.filter { $0.end < startOfDay && $0.end >= weekStart }, now)
+                    group("Earlier", rest.filter { $0.end < weekStart }, now)
+                } else {
+                    let found = store.sessions.filter(matches)
+                    if found.isEmpty {
+                        Text("No sessions match “\(query)”").font(.system(size: 12)).foregroundStyle(.secondary)
+                    } else {
+                        group("Results · \(found.count)", found, now)
+                    }
+                }
             }
+            .searchable(text: queryState.projectedValue, placement: .sidebar, prompt: "Search sessions and prompts")
         }
     }
 
@@ -440,6 +459,10 @@ struct SessionDetail: View {
                              note: "\(session.inputTokens.compact) in")
                 }
 
+                if session.findings.hasOutcomes || session.findings.hasFriction {
+                    FindingsCard(findings: session.findings)
+                }
+
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Eyebrow("Session flow")
@@ -709,5 +732,42 @@ private struct RankCard: View {
             }
         }
         .surface()
+    }
+}
+
+/// Outcomes and friction for one session.
+private struct FindingsCard: View {
+    let findings: Findings
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            if findings.hasOutcomes {
+                VStack(alignment: .leading, spacing: 8) {
+                    Eyebrow("Shipped")
+                    HStack(spacing: 6) {
+                        if findings.commits > 0 { Chip(text: "\(findings.commits) commit\(findings.commits == 1 ? "" : "s")", symbol: "checkmark.circle", tint: HUD.phosphor) }
+                        if findings.pushes > 0 { Chip(text: "\(findings.pushes) push\(findings.pushes == 1 ? "" : "es")", symbol: "arrow.up.circle", tint: HUD.phosphor) }
+                        if findings.pullRequests > 0 { Chip(text: "\(findings.pullRequests) PR\(findings.pullRequests == 1 ? "" : "s")", symbol: "arrow.triangle.pull", tint: HUD.phosphor) }
+                        if findings.releases > 0 { Chip(text: "\(findings.releases) release\(findings.releases == 1 ? "" : "s")", symbol: "shippingbox", tint: HUD.phosphor) }
+                    }
+                }
+                .surface()
+            }
+            if findings.hasFriction {
+                VStack(alignment: .leading, spacing: 7) {
+                    Eyebrow("Went in circles")
+                    ForEach(Array(findings.failingCommands.prefix(3).enumerated()), id: \.offset) { _, f in
+                        Label("\(f.0) failed \(f.1)×", systemImage: "arrow.triangle.2.circlepath")
+                            .foregroundStyle(Category.waiting.color)
+                    }
+                    ForEach(Array(findings.churnedFiles.prefix(3).enumerated()), id: \.offset) { _, f in
+                        Label("\(f.0) edited \(f.1)×", systemImage: "pencil.and.scribble")
+                            .foregroundStyle(Category.editing.color)
+                    }
+                }
+                .font(.system(size: 12))
+                .surface()
+            }
+        }
     }
 }

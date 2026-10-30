@@ -141,7 +141,7 @@ enum Analyzer {
             return false
         }()
 
-        return SessionSummary(
+        var summary = SessionSummary(
             id: id, source: source, title: title, project: project,
             cwd: cwd ?? "", branch: branch,
             start: first.time, end: last.time,
@@ -152,6 +152,8 @@ enum Analyzer {
             pendingTool: pending.last.flatMap { tools[$0] },
             permissionSince: pending.last.flatMap { permission[$0] }
         )
+        summary.findings = Findings.from(Array(tools.values))
+        return summary
     }
 
     /// Totals across sessions, limited to segments that started on/after `since`.

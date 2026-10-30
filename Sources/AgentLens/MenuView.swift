@@ -69,6 +69,13 @@ struct MenuView: View {
                         Text("REC").font(.hud(9.5, .bold)).foregroundStyle(HUD.alarm)
                     }
                 }
+                if UpdateChecker.shared.updateAvailable {
+                    Button { NSWorkspace.shared.open(UpdateChecker.shared.latestURL ?? UpdateChecker.releasesURL) } label: {
+                        Chip(text: "Update", symbol: "arrow.down.circle", tint: HUD.phosphor)
+                    }
+                    .buttonStyle(.plain)
+                    .help("AgentLens \(UpdateChecker.shared.latest ?? "") is available")
+                }
                 IconButton(symbol: "gearshape", help: "Settings") { go(.settings) }
                     .keyboardShortcut(",", modifiers: .command)
             }
