@@ -129,27 +129,60 @@ final class Worker: @unchecked Sendable {
                           hookEvents: hooks.count, lastHookEvent: hooks.lastEvent)
     }
 
-    private func discover() {
-        let home = Paths.home
+    // Claude Code deletes session logs after 30 days (its cleanupPeriodDays), which used to erase
+    // them from AgentLens's history too. So AgentLens keeps a hard link to each log in its own
+    // archive: while the original exists it's the same file (no extra space, appends included);
+    // once Claude Code deletes it, the link survives and the session stays in AgentLens.
+    private var claudeRoot: URL { Paths.home.appendingPathComponent(".claude/projects") }
+    private var coworkRoot: URL { Paths.home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions") }
+    private var archiveRoot: URL { Paths.support.appendingPathComponent("archive") }
+    private var lastArchive = Date.distantPast
+    private var keepHistory: Bool { UserDefaults.standard.object(forKey: "keepHistory") as? Bool ?? true }
 
-        // Claude Code (CLI, IDE, desktop Code tab): ~/.claude/projects/<project>/<session>.jsonl
-        let projects = home.appendingPathComponent(".claude/projects")
-        for dir in children(projects) {
-            for f in children(dir) where f.pathExtension == "jsonl" {
+    private func discover() {
+        discoverClaude(in: claudeRoot)
+        discoverCowork(in: coworkRoot)
+        guard keepHistory else { return }
+        if Date().timeIntervalSince(lastArchive) > 300 {
+            archiveAll()
+            lastArchive = Date()
+        }
+        // Archived sessions whose original is gone.
+        discoverClaude(in: archiveRoot.appendingPathComponent("claude"), original: claudeRoot)
+        discoverCowork(in: archiveRoot.appendingPathComponent("cowork"), original: coworkRoot)
+    }
+
+    /// The same file under `original`, when `url` lives under `root` (an archive).
+    private func counterpart(_ url: URL, root: URL, original: URL) -> URL {
+        URL(fileURLWithPath: original.path + url.path.dropFirst(root.path.count))
+    }
+
+    /// From an archive, take only files whose original no longer exists.
+    private func wanted(_ f: URL, root: URL, original: URL?) -> Bool {
+        guard let original else { return true }
+        let o = counterpart(f, root: root, original: original)
+        return transcripts[o.path] == nil && !FileManager.default.fileExists(atPath: o.path)
+    }
+
+    // Claude Code (CLI, IDE, desktop Code tab): <root>/<project>/<session>.jsonl
+    private func discoverClaude(in root: URL, original: URL? = nil) {
+        for dir in children(root) {
+            for f in children(dir) where f.pathExtension == "jsonl" && wanted(f, root: root, original: original) {
                 add(f, source: .claudeCode, title: nil)
                 addSubagents(of: f, source: .claudeCode)
             }
         }
+    }
 
-        // Cowork: .../local-agent-mode-sessions/<org>/<user>/local_<id>/.claude/projects/<p>/<s>.jsonl
-        // with the session title in the sibling local_<id>.json.
-        let cowork = home.appendingPathComponent("Library/Application Support/Claude/local-agent-mode-sessions")
-        for org in children(cowork) {
+    // Cowork: <root>/<org>/<user>/local_<id>/.claude/projects/<p>/<s>.jsonl,
+    // with the session title in the sibling local_<id>.json.
+    private func discoverCowork(in root: URL, original: URL? = nil) {
+        for org in children(root) {
             for user in children(org) {
                 for sess in children(user) where sess.lastPathComponent.hasPrefix("local_") && sess.hasDirectoryPath {
                     let title = coworkTitle(user.appendingPathComponent(sess.lastPathComponent + ".json"))
                     for p in children(sess.appendingPathComponent(".claude/projects")) {
-                        for f in children(p) where f.pathExtension == "jsonl" {
+                        for f in children(p) where f.pathExtension == "jsonl" && wanted(f, root: root, original: original) {
                             add(f, source: .cowork, title: title)
                             addSubagents(of: f, source: .cowork)
                         }
@@ -157,6 +190,51 @@ final class Worker: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Hard-links every Claude Code and Cowork log (plus subagent files and Cowork titles) into the archive.
+    private func archiveAll() {
+        let claudeArchive = archiveRoot.appendingPathComponent("claude")
+        for dir in children(claudeRoot) {
+            for f in children(dir) where f.pathExtension == "jsonl" {
+                link(f, root: claudeRoot, into: claudeArchive)
+                for s in children(f.deletingPathExtension().appendingPathComponent("subagents")) {
+                    link(s, root: claudeRoot, into: claudeArchive)
+                }
+            }
+        }
+        let coworkArchive = archiveRoot.appendingPathComponent("cowork")
+        for org in children(coworkRoot) {
+            for user in children(org) {
+                for sess in children(user) where sess.lastPathComponent.hasPrefix("local_") && sess.hasDirectoryPath {
+                    let meta = user.appendingPathComponent(sess.lastPathComponent + ".json")
+                    if FileManager.default.fileExists(atPath: meta.path) { link(meta, root: coworkRoot, into: coworkArchive) }
+                    for p in children(sess.appendingPathComponent(".claude/projects")) {
+                        for f in children(p) where f.pathExtension == "jsonl" {
+                            link(f, root: coworkRoot, into: coworkArchive)
+                            for s in children(f.deletingPathExtension().appendingPathComponent("subagents")) {
+                                link(s, root: coworkRoot, into: coworkArchive)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Keeps `<archive>/<same relative path>` hard-linked to `file`. Re-links if the original was
+    /// replaced by a new file (different inode).
+    private func link(_ file: URL, root: URL, into archive: URL) {
+        let fm = FileManager.default
+        let dest = counterpart(file, root: root, original: archive)
+        let inode = { (u: URL) in (try? fm.attributesOfItem(atPath: u.path))?[.systemFileNumber] as? Int }
+        guard let src = inode(file) else { return }
+        if let d = inode(dest) {
+            if d == src { return }
+            try? fm.removeItem(at: dest)   // our own stale link; the original was rewritten
+        }
+        try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.linkItem(at: file, to: dest)
     }
 
     private func add(_ url: URL, source: Source, title: String?) {

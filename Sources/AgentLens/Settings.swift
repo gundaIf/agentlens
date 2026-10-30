@@ -18,6 +18,8 @@ final class Preferences {
     var showCount: Bool { didSet { d.set(showCount, forKey: "showCount"); AppController.shared.updateIcon() } }
     /// Agent groups the user turned off (by `AgentGroup.id`).
     private(set) var hidden: Set<String> { didSet { d.set(Array(hidden), forKey: "hiddenAgents") } }
+    /// Keep sessions after Claude Code deletes its logs (30 days by default). Read by the store's worker.
+    var keepHistory: Bool { didSet { d.set(keepHistory, forKey: "keepHistory") } }
     private(set) var launchAtLogin = false
     private(set) var loginNeedsApproval = false
 
@@ -25,6 +27,7 @@ final class Preferences {
         expanded = d.object(forKey: "menuExpanded") as? Bool ?? false
         showCount = d.object(forKey: "showCount") as? Bool ?? true
         hidden = Set(d.stringArray(forKey: "hiddenAgents") ?? [])
+        keepHistory = d.object(forKey: "keepHistory") as? Bool ?? true
         refreshLogin()
     }
 
@@ -304,6 +307,10 @@ struct SettingsView: View {
                                     subtitle: store.hooksInstalled ? "Installed · exact tool and permission times"
                                                                    : "Optional · separates permission waits") {
                             RowButton(title: "Manage") { AppController.shared.openDashboard(select: nil) }
+                        }
+                        SettingsRow(symbol: "clock.arrow.circlepath", tint: Color(hex: 0x8E6BFF), title: "Keep history",
+                                    subtitle: "Keep sessions after Claude Code deletes its logs (30 days). Stays on this Mac.") {
+                            HUDSwitch(isOn: prefs.keepHistory) { prefs.keepHistory = $0 }
                         }
                         SettingsRow(symbol: "folder.fill", tint: Color(hex: 0x3D7BFF), title: "Data folder",
                                     subtitle: "Usage, hook and window logs. Nothing leaves this Mac.") {

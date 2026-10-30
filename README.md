@@ -28,6 +28,8 @@ Builds with the Xcode Command Line Tools alone; full Xcode isn't required. There
 
 Files are polled every 2s, and only newly appended bytes are parsed. Nothing leaves the machine.
 
+**History.** Claude Code deletes its session logs after 30 days (`cleanupPeriodDays`). So history isn't lost with them, AgentLens hard-links every Claude Code and Cowork log (with subagent files and Cowork titles) into `~/Library/Application Support/AgentLens/archive/`. While the original exists, the link is the same file, so it uses no extra space and sees every append. When Claude Code deletes the original, the link survives and AgentLens reads the session from the archive. Turn this off in Settings → Advanced → Keep history.
+
 **Subagents.** Subagent work is read from `<session>/subagents/agent-<id>.jsonl`, with the description and agent type from `agent-<id>.meta.json`. Older transcripts write it inline as `isSidechain: true` lines, which are grouped by `agentId`. Each subagent becomes a child row under its session in the sidebar, and the session page gets a Subagents card. Each child has its own category breakdown and workflow. Subagents run alongside the parent's `Agent` call, so their time isn't added to the totals again.
 
 ## Following Muse, Grok Bot and ChatGPT (Accessibility)
