@@ -9,6 +9,8 @@ if swift build -c release --build-system native --arch x86_64 >/dev/null 2>&1; t
   mkdir -p .build/universal
   lipo -create .build/arm64-apple-macosx/release/AgentLens .build/x86_64-apple-macosx/release/AgentLens -output .build/universal/AgentLens
   BIN=.build/universal/AgentLens
+  # Leave .build/release pointing at the Apple Silicon build (the Intel build re-points it).
+  swift build -c release --build-system native >/dev/null 2>&1
 else
   echo "note: Intel build failed; this app runs on Apple Silicon only"
 fi

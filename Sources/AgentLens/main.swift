@@ -156,6 +156,31 @@ if CommandLine.arguments.contains("--selftest-windows") {
     qe += quit.ingest(snap(402, title: "Draft", input: "", buttons: ["stop"], sig: 2))
     qe += quit.ingest(snap(403, title: "Draft", input: "", buttons: ["stop"], sig: 3))
     let later = t0.addingTimeInterval(403 + 600)
+
+    // Labelled transcript (Grok Bot style): window title is just the app name; messages carry authors.
+    func chat(_ dt: Double, _ convo: String, _ n: Int, you: Bool, len: Int, text: String? = nil) -> WindowSnapshot {
+        var s = snap(dt, title: "Grok Bot", input: "", sig: 1)
+        s.chat = ChatLog(conversation: convo, count: n, lastFromUser: you, lastUserText: text, lastLength: len)
+        return s
+    }
+    let ct = WindowTracker()
+    var ce: [WindowEvent] = []
+    let frames2: [WindowSnapshot] = [
+        chat(500, "Sidekick", 7, you: false, len: 300),                        // opened: baseline, no prompt
+        chat(501, "Sidekick", 7, you: false, len: 300),
+        chat(502, "Sidekick", 8, you: true, len: 40, text: "Draft three posts for Helena"),
+        chat(503, "Sidekick", 8, you: true, len: 40, text: "Draft three posts for Helena"),
+        chat(510, "Sidekick", 9, you: false, len: 120),                        // reply starts streaming
+        chat(511, "Sidekick", 9, you: false, len: 480),
+        chat(512, "Sidekick", 9, you: false, len: 900),
+    ] + (513...520).map { chat(Double($0), "Sidekick", 9, you: false, len: 900) }
+      + [chat(530, "Helena PA", 4, you: false, len: 200), chat(531, "Helena PA", 4, you: false, len: 200)]
+    for f in frames2 { ce += ct.ingest(f) }
+    print("\nChat transcript test:")
+    for e in ce where e.kind != .beat { print(String(format: "  %5.0fs", e.time.timeIntervalSince(t0)), e.kind.rawValue, e.text) }
+    for s in WindowSessions.build(ce, app: TrackedApp.catalog.first { $0.id == "com.anysphere.sand" }!, now: t0.addingTimeInterval(540)) {
+        print("  Session \"\(s.title)\": \(s.active.pretty) answering, \(s.prompts) prompt(s)")
+    }
     let q = WindowSessions.build(qe, app: app, now: later)
     print("Quit-mid-answer test: \(q.count) session, live = \(q.first.map { "\($0.live(at: later))" } ?? "none") (want not working)")
     exit(0)

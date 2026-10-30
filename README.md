@@ -38,7 +38,17 @@ Muse, Grok Bot and ChatGPT chats live online, so AgentLens follows them by readi
 
 This should only happen once. `build.sh` signs the app with a requirement that names just its bundle id (`local.agentlens`), not the default ad-hoc hash that changes on every build, so macOS treats new builds as the same app and keeps the permission. Check it with `AgentLens.app/Contents/MacOS/AgentLens --ax-status`.
 
-The reader isn't specific to either app. It looks for signals every chat app shows:
+The reader prefers the app's own transcript when the window exposes one, and recognises three styles (tuned on the real apps on 2026-10-30):
+
+| App | Conversation | Messages | Answering |
+|---|---|---|---|
+| Grok Bot | the main area's heading (the window title is always "Grok Bot") | articles labelled "Sidekick 8:26 AM" / "You 9:21 AM" | your message is newest (up to 3 min), or the reply is still growing |
+| ChatGPT | the window title | hidden headings "You said:" / "ChatGPT said:" | the reply is still growing, or a Stop button |
+| Muse | "Muse" (one continuous chat) | a plain list in "Chat messages", no authors | the composer button reads "…Stop" instead of "…Send" |
+
+A new message from you is a prompt (first line only). Grok Bot keeps only the latest few messages, so prompts are detected when your message becomes the newest, not by the count. For Muse, the newest message when answering starts is taken as the prompt. Windows titled like sign-in, settings or update screens are skipped. Each app is read at most once a second; slow-to-read windows (ChatGPT, about half a second per read) are read less often, up to every 4 seconds. `open -n AgentLens.app --args --ax-watch <bundle id> <seconds> <file>` logs what the reader sees each second (counts, lengths and flags only).
+
+When an app shows none of that, the reader falls back to signals every chat app shows:
 
 - **Conversation:** the window title. A new title starts a new session.
 - **Prompt:** the message box had text and then emptied. Only its first line is kept (up to 120 characters).

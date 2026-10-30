@@ -21,6 +21,36 @@ final class AppController: NSObject, NSApplicationDelegate {
             try? AXInspect.structure(bundle: args[i + 1]).write(toFile: args[i + 2], atomically: true, encoding: .utf8)
             exit(0)
         }
+        // `open -n AgentLens.app --args --ax-watch <bundle id> <seconds> <file>`: read that app's window once a
+        // second and log what the reader sees (structure only: counts, lengths, flags; no message text).
+        if let i = args.firstIndex(of: "--ax-watch"), i + 3 < args.count,
+           let secs = Int(args[i + 2]),
+           let pid = NSRunningApplication.runningApplications(withBundleIdentifier: args[i + 1]).first?.processIdentifier {
+            var out = "t\tconversation\tmessages\tlastFromYou\tlastLen\tyourTextLen\tstopButton\tprogress\tinputLen\tms\n"
+            let tracker = WindowTracker()
+            for t in 0..<max(1, secs) {
+                let began = Date()
+                let snap = WindowReader.snapshot(pid: pid)
+                let ms = Int(Date().timeIntervalSince(began) * 1000)
+                if let s = snap {
+                    let c = s.chat
+                    let stop = s.buttons.contains { $0.contains("stop") || $0.contains("cancel") }
+                    out += "\(t)\t\(c?.conversation ?? "-")\t\(c?.count ?? -1)\t\(c?.lastFromUser ?? false)\t\(c?.lastLength ?? -1)\t\(c?.lastUserText?.count ?? -1)\t\(stop)\t\(s.progress)\t\((s.input ?? "").count)\t\(ms)"
+                    let ev = tracker.ingest(s).filter { $0.kind != .beat }.map(\.kind.rawValue)
+                    out += ev.isEmpty ? "\n" : "\t→ " + ev.joined(separator: ",") + "\n"
+                } else {
+                    // Why nothing came back: which windows the app reports and their subroles.
+                    let ax = AXUIElementCreateApplication(pid)
+                    let ws = (AXInspect.attr(ax, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+                    let subs = ws.map { AXInspect.string($0, kAXSubroleAttribute) ?? "nil" }.joined(separator: ",")
+                    let main = AXInspect.element(ax, kAXMainWindowAttribute).flatMap { AXInspect.string($0, kAXSubroleAttribute) } ?? "none"
+                    out += "\(t)\tNO WINDOW · windows=\(ws.count) [\(subs)] main=\(main)\n"
+                }
+                if t < secs - 1 { Thread.sleep(forTimeInterval: 1) }
+            }
+            try? out.write(toFile: args[i + 3], atomically: true, encoding: .utf8)
+            exit(0)
+        }
         NSApp.setActivationPolicy(.accessory)
         store.start()
         AppUsage.shared.start()

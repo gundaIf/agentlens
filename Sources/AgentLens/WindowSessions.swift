@@ -22,6 +22,21 @@ struct WindowSnapshot {
     let input: String?             // the message box's current text
     let textSignature: Int         // changes when the conversation text changes (content isn't kept)
     let progress: Bool             // a progress or busy indicator is showing
+    /// Set when the window exposes a labelled transcript (messages tagged with author and time, as
+    /// Grok Bot does). Far more reliable than watching the text box, so the tracker prefers it.
+    var chat: ChatLog? = nil
+}
+
+struct ChatLog {
+    let conversation: String?      // the main area's heading ("Sidekick")
+    let count: Int                 // messages in the transcript
+    let lastFromUser: Bool         // the newest message is yours ("You 9:21 AM")
+    let lastUserText: String?      // first line of your newest message (all we keep)
+    let lastLength: Int            // length of the newest message, to see a reply still growing
+    /// False for a plain message list (Muse): we can't tell your messages from the app's.
+    var authorsKnown = true
+    /// First line of the newest message, used as the prompt when authors aren't known.
+    var lastText: String? = nil
 }
 
 enum WindowEventKind: String { case title, prompt, busyStart, busyEnd, step, beat }
@@ -53,17 +68,34 @@ enum WindowReader {
         let window = [AXInspect.element(app, kAXMainWindowAttribute), AXInspect.element(app, kAXFocusedWindowAttribute)]
             .compactMap { $0 }.first(where: isStandard) ?? windows.first(where: isStandard)
         guard let window else { return nil }
+        // Sign-in, settings and update windows are ordinary windows too, but never conversations.
+        let windowName = (AXInspect.string(window, kAXTitleAttribute) ?? "").lowercased()
+        let notChats = ["log in", "login", "sign in", "sign up", "settings", "preferences", "software update", "welcome", "about "]
+        if notChats.contains(where: { windowName == $0 || windowName.hasPrefix($0) }) { return nil }
 
         var buttons: [String] = [], labels: [String] = []
         var progress = false
         var textCount = 0, textLength = 0
         var firstTextArea: String?
         var visited = 0
+        var mainTitle: String?, heading: String?
+        var messages: [(author: String, content: String?)] = []
+        let stamped = try! NSRegularExpression(pattern: #"^(.+?)\s+\d{1,2}:\d{2}(:\d{2})?\s?([AaPp][Mm])?$"#)
 
-        func walk(_ e: AXUIElement, _ depth: Int) {
-            guard depth < 45, visited < 4000 else { return }
+        // Messages come in three styles:
+        //   labelled articles "Sidekick 8:26 AM"   (Grok Bot)
+        //   headings "You said:" / "ChatGPT said:"  (ChatGPT), text follows the heading
+        //   a plain message list with no authors   (Muse's "Chat messages")
+        var collectingSaid = false
+        var plainLog: [String] = []
+        let said = try! NSRegularExpression(pattern: #"^(.{1,40}?) said:$"#)
+        let dateLabel = try! NSRegularExpression(pattern: #"^\d{1,2} \w{3,9}( \d{4})? at \d{1,2}[:.]\d{2}|^\d{1,2}[:.]\d{2}( ?[AaPp][Mm])?$|^(Today|Yesterday)( at .*)?$"#)
+
+        func walk(_ e: AXUIElement, _ depth: Int, _ inLog: Bool) {
+            guard depth < 60, visited < 8000 else { return }
             visited += 1
             let role = AXInspect.string(e, kAXRoleAttribute) ?? ""
+            let sub = role == "AXGroup" ? AXInspect.string(e, kAXSubroleAttribute) : nil
             switch role {
             case "AXButton":
                 let name = [AXInspect.string(e, kAXTitleAttribute), AXInspect.string(e, kAXDescriptionAttribute)]
@@ -71,14 +103,40 @@ enum WindowReader {
                 if !name.isEmpty { buttons.append(name) }
             case "AXProgressIndicator", "AXBusyIndicator":
                 progress = true
+            case "AXHeading":
+                let t = AXInspect.string(e, kAXTitleAttribute) ?? AXInspect.string(e, kAXDescriptionAttribute) ?? ""
+                if let m = said.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)), let a = Range(m.range(at: 1), in: t) {
+                    messages.append((String(t[a]), ""))                 // "You said:": a message starts
+                    collectingSaid = true
+                } else if heading == nil {
+                    heading = AXInspect.string(e, kAXDescriptionAttribute) ?? AXInspect.string(e, kAXTitleAttribute)
+                }
+            case "AXGroup":
+                if sub == "AXLandmarkMain", mainTitle == nil { mainTitle = AXInspect.string(e, kAXTitleAttribute) }
+                if sub == "AXDocumentArticle", let t = AXInspect.string(e, kAXTitleAttribute) {
+                    let r = NSRange(t.startIndex..., in: t)
+                    if let m = stamped.firstMatch(in: t, range: r), let a = Range(m.range(at: 1), in: t), t.count <= 80 {
+                        messages.append((String(t[a]), nil))          // "Sidekick 8:26:24 AM": a message starts
+                        collectingSaid = false
+                    } else if !messages.isEmpty, messages[messages.count - 1].content == nil {
+                        messages[messages.count - 1].content = t       // its body, one level down
+                    }
+                }
             case "AXStaticText":
                 if let v = AXInspect.string(e, kAXValueAttribute) {
                     textCount += 1
                     textLength += v.count
                     let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
                     if t.count <= 48, t.hasSuffix("…") || t.hasSuffix("...") { labels.append(t) }
+                    if collectingSaid, !messages.isEmpty, let c = messages[messages.count - 1].content, c.count < 4000 {
+                        messages[messages.count - 1].content = c.isEmpty ? t : c + "\n" + t
+                    } else if inLog, !t.isEmpty,
+                              dateLabel.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) == nil {
+                        plainLog.append(t)
+                    }
                 }
             case "AXTextArea", "AXTextField":
+                collectingSaid = false                                 // the composer ends the transcript
                 if firstTextArea == nil, (AXInspect.attr(e, "AXEditable") as? Bool) ?? (role == "AXTextArea") {
                     let v = AXInspect.string(e, kAXValueAttribute)
                     // Some apps report their placeholder ("Ask anything…") as the value.
@@ -87,9 +145,10 @@ enum WindowReader {
             default: break
             }
             if role == "AXTextArea" || role == "AXTextField" { return }
-            AXInspect.children(e).forEach { walk($0, depth + 1) }
+            let childInLog = inLog || sub == "AXApplicationLog"
+            AXInspect.children(e).forEach { walk($0, depth + 1, childInLog) }
         }
-        walk(window, 0)
+        walk(window, 0, false)
 
         // Prefer the focused text box as the message box.
         var input = firstTextArea
@@ -97,9 +156,30 @@ enum WindowReader {
            let r = AXInspect.string(f, kAXRoleAttribute), r == "AXTextArea" || r == "AXTextField" {
             input = AXInspect.string(f, kAXValueAttribute)
         }
+        var chat: ChatLog?
+        if messages.isEmpty, !plainLog.isEmpty {
+            let last = plainLog[plainLog.count - 1]
+            chat = ChatLog(conversation: nil, count: plainLog.count, lastFromUser: false, lastUserText: nil,
+                           lastLength: last.count, authorsKnown: false,
+                           lastText: String((last.components(separatedBy: .newlines).first ?? last).prefix(120)))
+        } else if !messages.isEmpty {
+            let you: Set<String> = ["you", "me", "user"]
+            let last = messages[messages.count - 1]
+            let lastMine = messages.last { you.contains($0.author.lowercased()) }
+            // Trust the in-window heading only when the window title is just the app's name (Grok Bot, Muse).
+            // ChatGPT titles its window after the conversation, which beats any heading.
+            let windowTitle = AXInspect.string(window, kAXTitleAttribute) ?? ""
+            let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? ""
+            let generic = windowTitle.isEmpty || windowTitle == appName
+            let name = generic ? [mainTitle, heading].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } : nil
+            chat = ChatLog(conversation: name, count: messages.count,
+                           lastFromUser: you.contains(last.author.lowercased()),
+                           lastUserText: lastMine?.content.map { String(($0.components(separatedBy: .newlines).first ?? $0).prefix(120)) },
+                           lastLength: last.content?.count ?? 0)
+        }
         return WindowSnapshot(time: now, title: AXInspect.string(window, kAXTitleAttribute) ?? "",
                               buttons: buttons, statusLabels: labels, input: input,
-                              textSignature: textCount &* 1_000_003 &+ textLength, progress: progress)
+                              textSignature: textCount &* 1_000_003 &+ textLength, progress: progress, chat: chat)
     }
 }
 
@@ -122,12 +202,27 @@ final class WindowTracker {
     private var pending: (text: String, time: Date)?
     private var lastEmitted: (text: String, time: Date)?
     private var lastBeat = Date.distantPast
+    private var lastChatCount: Int?
+    private var lastFromUser = false
+    private var lastUserText: String?
+    private var newestText: (text: String, time: Date)?
+
+    private func emitPrompt(_ text: String?, at t: Date, into out: inout [WindowEvent]) {
+        let text = text.flatMap { $0.isEmpty ? nil : $0 } ?? "(message)"
+        let repeatSend = lastEmitted.map { $0.text == text && t.timeIntervalSince($0.time) < 120 } ?? false
+        if !repeatSend {
+            out.append(WindowEvent(time: t, kind: .prompt, text: text))
+            lastEmitted = (text, t)
+        }
+        lastPrompt = t
+    }
 
     private static let stopWords = ["stop", "cancel", "interrupt"]
 
     func ingest(_ s: WindowSnapshot) -> [WindowEvent] {
         var out: [WindowEvent] = []
-        let title = s.title.trimmingCharacters(in: .whitespaces)
+        // A labelled transcript names the conversation; the window title may just be the app's name.
+        let title = (s.chat?.conversation).flatMap { $0.isEmpty ? nil : $0 } ?? s.title.trimmingCharacters(in: .whitespaces)
         if !title.isEmpty, title != lastTitle {
             // Another conversation: close the old one's turn, and don't mistake the new page of text
             // for a reply streaming in.
@@ -139,17 +234,40 @@ final class WindowTracker {
             lastSignature = nil
             lastSignatureChange = .distantPast
             lastPrompt = .distantPast
+            lastChatCount = nil
+            lastFromUser = false
+            lastUserText = nil
+            newestText = nil
             lastTitle = title
             out.append(WindowEvent(time: s.time, kind: .title, text: title))
         }
 
-        if let sig = lastSignature, sig != s.textSignature { lastSignatureChange = s.time }
-        lastSignature = s.textSignature
+        // With a transcript, "the conversation changed" means a message was added or is still growing.
+        let signature = s.chat.map { $0.count &* 1_000_003 &+ $0.lastLength } ?? s.textSignature
+        if let sig = lastSignature, sig != signature { lastSignatureChange = s.time }
+        lastSignature = signature
+
+        if let c = s.chat {
+            if c.authorsKnown {
+                // Your message became the newest one, or your newest text changed. Not the count: apps like
+                // Grok Bot keep only the last few messages, so it can stay the same. Baseline first.
+                if lastChatCount != nil, c.lastFromUser,
+                   !lastFromUser || (c.lastUserText != nil && c.lastUserText != lastUserText) {
+                    emitPrompt(c.lastUserText, at: s.time, into: &out)
+                }
+                lastFromUser = c.lastFromUser
+                lastUserText = c.lastUserText
+            } else if let n = lastChatCount, c.count > n || (c.lastText != nil && c.lastText != newestText?.text) {
+                // No authors (Muse): remember the newest message; it becomes the prompt if answering starts soon.
+                newestText = (c.lastText ?? "", s.time)
+            }
+            lastChatCount = c.count
+        }
 
         // Prompt: text sat in the box, the box emptied, and the conversation then changed
         // (your message appeared) within 6 seconds. Anything else is flicker, not a send.
         let input = (s.input ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.input != nil {
+        if s.input != nil, s.chat == nil {
             if input.count >= 2 {
                 if input == typedCandidate { typed = input } else { typedCandidate = input }
             } else if input.isEmpty {
@@ -175,11 +293,19 @@ final class WindowTracker {
 
         let stopShowing = s.buttons.contains { b in WindowTracker.stopWords.contains { b.contains($0) } }
         let streaming = s.time.timeIntervalSince(lastSignatureChange) < 2.5 && s.time.timeIntervalSince(lastPrompt) < 15 * 60
-        let nowBusy = stopShowing || s.progress || streaming
+        // Your message is the newest and no reply has started: the agent is working on it.
+        // Capped at 3 minutes on its own: a message that only gets a reaction (❤️) never gets a reply.
+        let awaiting = s.chat?.lastFromUser == true && s.time.timeIntervalSince(lastPrompt) < 3 * 60
+        let nowBusy = stopShowing || s.progress || streaming || awaiting
 
         if nowBusy {
             quietSince = nil
             if !busy {
+                // Authors unknown: the message that appeared just before answering began is your prompt.
+                if s.chat?.authorsKnown == false, s.time.timeIntervalSince(lastPrompt) > 20 {
+                    let recent = newestText.flatMap { s.time.timeIntervalSince($0.time) < 20 ? $0.text : nil }
+                    emitPrompt(recent, at: s.time, into: &out)
+                }
                 busy = true
                 lastStep = ""
                 out.append(WindowEvent(time: s.time, kind: .busyStart))
@@ -214,6 +340,9 @@ final class WindowWatcher {
     private var timer: Timer?
     private let queue = DispatchQueue(label: "agentlens.windows", qos: .utility)
     private var busy = false
+    /// Per app, when it's next due. Slow-to-read windows (ChatGPT: ~0.5s) are read less often, so
+    /// watching never weighs on the app being watched. Only touched on `queue`.
+    private var nextRead: [String: Date] = [:]
 
     func start() {
         guard timer == nil else { return }
@@ -232,7 +361,13 @@ final class WindowWatcher {
         let trackers = targets.map { t in self.trackers[t.0.id] ?? { let n = WindowTracker(); self.trackers[t.0.id] = n; return n }() }
         queue.async {
             for (i, (app, pid)) in targets.enumerated() {
-                guard let snap = WindowReader.snapshot(pid: pid) else { continue }
+                if let due = self.nextRead[app.id], Date() < due { continue }
+                let began = Date()
+                let snapshot = WindowReader.snapshot(pid: pid)
+                // Pace: a read costing ~1/4 of the interval at most, between 1 and 4 seconds.
+                let cost = Date().timeIntervalSince(began)
+                self.nextRead[app.id] = began.addingTimeInterval(min(4, max(1, cost * 4)) - 0.05)
+                guard let snap = snapshot else { continue }
                 let events = trackers[i].ingest(snap)
                 if !events.isEmpty { WindowLog.append(events, app: app.id) }
             }
