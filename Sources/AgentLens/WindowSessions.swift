@@ -50,14 +50,16 @@ struct WindowEvent {
 // MARK: - Reading the window
 
 enum WindowReader {
-    private static var enabled = Set<pid_t>()
+    /// When each process was last asked to expose its contents. Asked again every 10s: a request made
+    /// while an app is still launching (ChatGPT after an update) fails silently and left it unreadable.
+    private static var enabledAt: [pid_t: Date] = [:]
 
     static func snapshot(pid: pid_t, now: Date = Date()) -> WindowSnapshot? {
         let app = AXUIElementCreateApplication(pid)
-        if !enabled.contains(pid) {
+        if now.timeIntervalSince(enabledAt[pid] ?? .distantPast) > 10 {
             // Electron/Chromium apps build their tree only when asked; harmless for native apps.
             AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-            enabled.insert(pid)
+            enabledAt[pid] = now
         }
         // The app's main conversation window only. Dialogs and sheets ("Log in", "Save",
         // "Software Update") would otherwise turn into sessions of their own.
@@ -88,6 +90,10 @@ enum WindowReader {
         //   a plain message list with no authors   (Muse's "Chat messages")
         var collectingSaid = false
         var plainLog: [String] = []
+        // Claude chat: each message ends with a "Message actions" toolbar; Claude's replies carry
+        // Good/Bad response and Retry. Text since the previous toolbar is the message.
+        var sinceToolbar: [String] = []
+        var toolbarMessages: [(author: String, content: String?)] = []
         let said = try! NSRegularExpression(pattern: #"^(.{1,40}?) said:$"#)
         let dateLabel = try! NSRegularExpression(pattern: #"^\d{1,2} \w{3,9}( \d{4})? at \d{1,2}[:.]\d{2}|^\d{1,2}[:.]\d{2}( ?[AaPp][Mm])?$|^(Today|Yesterday)( at .*)?$"#)
 
@@ -130,6 +136,7 @@ enum WindowReader {
                     if t.count <= 48, t.hasSuffix("…") || t.hasSuffix("...") { labels.append(t) }
                     // The heading's own text ("You said:") also shows up as a static text: it isn't the message.
                     let isSaidLabel = said.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil
+                    if !t.isEmpty, sinceToolbar.count < 400 { sinceToolbar.append(t) }
                     if isSaidLabel {
                         // skip
                     } else if collectingSaid, !messages.isEmpty, let c = messages[messages.count - 1].content, c.count < 4000 {
@@ -138,6 +145,14 @@ enum WindowReader {
                               dateLabel.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) == nil {
                         plainLog.append(t)
                     }
+                }
+            case "AXToolbar":
+                if (AXInspect.string(e, kAXDescriptionAttribute) ?? "").lowercased() == "message actions" {
+                    let actions = AXInspect.children(e).compactMap { AXInspect.string($0, kAXDescriptionAttribute)?.lowercased() }
+                    let fromApp = actions.contains { $0.contains("good response") || $0.contains("bad response") || $0 == "retry" }
+                    toolbarMessages.append((fromApp ? "app" : "you", sinceToolbar.joined(separator: "\n")))
+                    sinceToolbar = []
+                    return                                             // its "2 days ago" isn't message text
                 }
             case "AXTextArea", "AXTextField":
                 collectingSaid = false                                 // the composer ends the transcript
@@ -161,7 +176,19 @@ enum WindowReader {
             input = AXInspect.string(f, kAXValueAttribute)
         }
         var chat: ChatLog?
-        if messages.isEmpty, !plainLog.isEmpty {
+        if messages.isEmpty, toolbarMessages.count >= 2 {
+            // A reply still streaming has no toolbar yet: its text is what follows the last one.
+            let trailing = sinceToolbar.joined(separator: "\n")
+            let mineIndex = toolbarMessages.lastIndex { $0.author == "you" }
+            chat = ChatLog(conversation: nil, count: toolbarMessages.count,
+                           lastFromUser: toolbarMessages.last?.author == "you" && trailing.count < 40,
+                           lastUserText: mineIndex.flatMap { i in toolbarMessages[i].content.map { c in
+                               let lines = c.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                               // The first message also carries the page's text before it: take its last line.
+                               return String(((i == 0 ? lines.last : lines.first) ?? c).prefix(120))
+                           } },
+                           lastLength: max(trailing.count, toolbarMessages.last?.content?.count ?? 0))
+        } else if messages.isEmpty, !plainLog.isEmpty {
             let last = plainLog[plainLog.count - 1]
             chat = ChatLog(conversation: nil, count: plainLog.count, lastFromUser: false, lastUserText: nil,
                            lastLength: last.count, authorsKnown: false,
@@ -383,6 +410,9 @@ final class WindowWatcher {
                 let cost = Date().timeIntervalSince(began)
                 self.nextRead[app.id] = began.addingTimeInterval(min(4, max(1, cost * 4)) - 0.05)
                 guard let snap = snapshot else { continue }
+                // The Claude app also hosts the Code tab, whose Stop button belongs to Claude Code (tracked from
+                // its own logs). Follow it only when the window shows a chat.
+                if app.source == .claudeChat, snap.chat == nil { continue }
                 let events = trackers[i].ingest(snap)
                 if !events.isEmpty { WindowLog.append(events, app: app.id) }
             }
@@ -550,8 +580,12 @@ final class WindowSessions {
             var totals = Aggregate()
             for s in segments { totals.add(s, project: app.name, session: id) }
             let lastKind = evs.last(where: { $0.kind != .beat })?.kind ?? .busyEnd
+            // Chats whose window is titled just "Claude" / "ChatGPT" are named after their first prompt.
+            let generic = g.title.isEmpty || g.title == app.name
+            let firstPrompt = chunks.first { $0.prompt != "(conversation in progress)" && $0.prompt != "(message)" }?.prompt
+            let title = generic && [.claudeChat, .chatgptChat].contains(source) ? (firstPrompt.map { String($0.prefix(60)) } ?? g.title) : g.title
             return SessionSummary(
-                id: id, source: source, title: g.title, project: app.name, cwd: "", branch: nil,
+                id: id, source: source, title: title, project: app.name, cwd: "", branch: nil,
                 start: first.time, end: stillBusy ? max(last.time, now) : last.time,
                 segments: segments, totals: totals, chunks: chunks,
                 toolCalls: 0, errors: 0, outputTokens: 0, inputTokens: 0,

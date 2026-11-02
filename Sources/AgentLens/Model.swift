@@ -9,6 +9,8 @@ enum Source: String {
     case codex = "ChatGPT"
     /// ChatGPT conversations followed by reading the app's window (chats that never touch ~/.codex).
     case chatgptChat = "ChatGPT chat"
+    /// The Claude desktop chat, followed through its window (Claude Code and Cowork have their own logs).
+    case claudeChat = "Claude chat"
 }
 
 /// What an agent's time was spent on. Every second of active time lands in exactly one of these.

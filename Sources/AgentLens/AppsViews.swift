@@ -6,7 +6,7 @@ extension Source {
         case .claudeCode: return "chevron.left.forwardslash.chevron.right"
         case .cowork: return "person.crop.circle"
         case .grok: return "bolt.horizontal.circle"
-        case .muse, .grokBot, .chatgptChat: return "macwindow"
+        case .muse, .grokBot, .chatgptChat, .claudeChat: return "macwindow"
         case .codex: return "sparkle"
         }
     }
@@ -21,6 +21,7 @@ extension SessionSummary {
         case .grok: return project.isEmpty ? "Grok" : "Grok · \(project)"
         case .muse, .grokBot: return source.rawValue
         case .chatgptChat: return "ChatGPT"
+        case .claudeChat: return "Claude"
         case .codex: return project.isEmpty || project == "ChatGPT project" ? "ChatGPT" : "ChatGPT · \(project)"
         }
     }
@@ -49,7 +50,7 @@ struct AppUsageRow: View {
                 HStack(spacing: 4) {
                     // When we follow the window, say what the agent is doing; otherwise whether it's open.
                     if let s = liveSession, case let state = s.live(at: now), state.isVisible {
-                        Text((app.readsWindow && s.source != .codex ? windowHeadline(state) : state.headline.uppercased())).font(.hud(9.5, .semibold)).foregroundStyle(state.color)
+                        Text(([.muse, .grokBot, .chatgptChat, .claudeChat].contains(s.source) ? windowHeadline(state) : state.headline.uppercased())).font(.hud(9.5, .semibold)).foregroundStyle(state.color)
                         Text("·").foregroundStyle(.tertiary)
                         Text(s.title).foregroundStyle(.secondary).truncationMode(.tail)
                     } else {

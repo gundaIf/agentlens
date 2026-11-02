@@ -1,6 +1,25 @@
 import AppKit
 import Foundation
 
+// `AgentLens --follow <seconds>`: scan like the running app does, every 2s, and report whether new
+// activity is picked up (for diagnosing a stale app).
+if let i = CommandLine.arguments.firstIndex(of: "--follow"), i + 1 < CommandLine.arguments.count, let secs = Double(CommandLine.arguments[i + 1]) {
+    let worker = Worker()
+    let started = Date()
+    var latest: [SessionSummary] = []
+    while Date().timeIntervalSince(started) < secs {
+        let t0 = Date()
+        let r = worker.scanNow()
+        let ms = Int(Date().timeIntervalSince(t0) * 1000)
+        if let r { latest = r.sessions }
+        let newest = latest.max { $0.end < $1.end }
+        print(String(format: "%5.0fs", Date().timeIntervalSince(started)),
+              r == nil ? "no change" : "changed  ", "scan \(ms)ms · \(latest.count) sessions · newest: \(newest.map { "\($0.title.prefix(30)) @ \($0.end.formatted(date: .omitted, time: .standard))" } ?? "-")")
+        Thread.sleep(forTimeInterval: 2)
+    }
+    exit(0)
+}
+
 // `AgentLens --dump` prints what the app sees, for checking the numbers without the UI.
 if CommandLine.arguments.contains("--dump") {
     let result = Worker().scanNow()
