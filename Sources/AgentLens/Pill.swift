@@ -333,7 +333,7 @@ struct PillContent: View {
         let waiting = list.filter { $0.live(at: now).isWaiting }
         let working = list.filter { $0.live(at: now).isWorking }.count
         return HStack(spacing: 8) {
-            Buddy(state: st, size: notch ? min(16, state.notchHeight - 10) : 18, animated: animated)
+            Die(state: st, size: notch ? min(16, state.notchHeight - 10) : 18, animated: animated)
             if notch {
                 Spacer(minLength: state.notchWidth)
             } else {

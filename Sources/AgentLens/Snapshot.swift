@@ -47,6 +47,20 @@ enum Snapshot {
         for i in 0..<3 {
             save(OnboardingView(startStep: i) {}.environment(store), "welcome-\(i + 1)", dir, .dark)
         }
+        // The die: one roll as a filmstrip, then each state.
+        let now = Date()
+        save(HStack(spacing: 6) {
+            ForEach(0..<12, id: \.self) { i in
+                Die(state: .running(tool: "Bash", detail: "", since: now), size: 40, at: Double(i) * 0.85 / 12 + 0.85 * 3)
+            }
+        }.padding(14).background(Color.black), "die-roll", dir, .dark, scale: 2)
+        save(HStack(spacing: 14) {
+            Die(state: .running(tool: "Bash", detail: "", since: now), size: 40, at: 0.85 * 3 + 0.6)
+            Die(state: .thinking(since: now), size: 40, at: 2)
+            Die(state: .waitingOnYou(reason: "", since: now), size: 40, at: 0.05)
+            Die(state: .finished(at: now), size: 40, at: 0)
+            Die(state: .idle, size: 40, at: 0)
+        }.padding(14).background(Color.black), "die-states", dir, .dark, scale: 2)
         save(AppIconArt(), "AppIcon", dir, .dark, scale: 1)
     }
 

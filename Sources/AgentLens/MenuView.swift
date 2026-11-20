@@ -92,7 +92,7 @@ struct MenuView: View {
                         .padding(.horizontal, 8).padding(.vertical, 10)
                 } else if live.isEmpty {
                     HStack(spacing: 12) {
-                        Buddy(state: .idle, size: 26, animated: false)
+                        Die(state: .idle, size: 26, animated: false)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("All quiet").font(.system(size: 12.5, weight: .semibold))
                             Text("Agents show up here the moment they start.")

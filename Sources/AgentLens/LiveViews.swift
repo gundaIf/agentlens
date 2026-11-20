@@ -27,7 +27,11 @@ extension LiveState {
     /// One short phrase for tight spots.
     var phrase: String {
         switch self {
-        case .running(let tool, _, _): return tool == "Bash" ? "Running a command" : "Using \(tool)"
+        case .running(let tool, _, _):
+            if tool == "Bash" { return "Running a command" }
+            // Window-followed chats report their step ("Answering", "Searching…") rather than a tool.
+            if tool == "Answering" || tool.hasSuffix("…") { return tool }
+            return "Using \(tool)"
         case .thinking: return "Thinking"
         case .waitingOnYou(let reason, _): return reason
         case .finished: return "Done · your turn"
@@ -36,74 +40,95 @@ extension LiveState {
     }
 }
 
-// MARK: - Buddy
+// MARK: - Die
 
-/// A small face that reads the room: glances around while the agent works, perks up red when it
-/// needs you, smiles when it's done, and dozes when idle.
-struct Buddy: View {
+/// A tiny die that shows the agent's state: it keeps tumbling and hopping while the agent works
+/// (faster when running a tool, lazier when thinking), rattles red when it needs you, lands on six
+/// when it's done, and sits still on one when idle.
+struct Die: View {
     let state: LiveState
     var size: CGFloat = 18
     var animated = true
+    /// For snapshots: draw the pose at this moment instead of animating.
+    var at: Double? = nil
 
     var body: some View {
-        if animated {
-            TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in face(t: ctx.date.timeIntervalSinceReferenceDate) }
+        if let at {
+            die(t: at).frame(width: size, height: size)
+        } else if animated {
+            TimelineView(.animation(minimumInterval: 1 / 60)) { ctx in die(t: ctx.date.timeIntervalSinceReferenceDate) }
                 .frame(width: size, height: size)
         } else {
-            face(t: 0.6).frame(width: size, height: size)
+            die(t: 0.3).frame(width: size, height: size)
         }
     }
 
-    private func face(t: Double) -> some View {
-        let color = state.color
-        let hop: CGFloat = {
-            guard animated, state.isWaiting else { return 0 }
-            let p = t.truncatingRemainder(dividingBy: 1.4) / 1.4
-            return p < 0.25 ? -sin(p / 0.25 * .pi) * size * 0.12 : 0
-        }()
-        return Canvas { ctx, s in
-            let r = CGRect(origin: .zero, size: s).insetBy(dx: s.width * 0.04, dy: s.height * 0.04)
-            let body = Path(roundedRect: r, cornerRadius: s.width * 0.34, style: .continuous)
-            ctx.fill(body, with: .color(color.opacity(state.isVisible ? 0.95 : 0.35)))
+    private struct Pose { var face: Int; var angle: Double; var dx: CGFloat; var dy: CGFloat; var squash: CGFloat }
 
-            let eyeY = r.midY - s.height * 0.04
-            let gap = s.width * 0.17
-            let ink = GraphicsContext.Shading.color(HUD.ink)
-            switch state {
-            case .finished:
-                // ^ ^
-                for dx in [-gap, gap] {
-                    var p = Path()
-                    let c = CGPoint(x: r.midX + dx, y: eyeY + s.height * 0.03)
-                    p.move(to: CGPoint(x: c.x - s.width * 0.08, y: c.y + s.height * 0.04))
-                    p.addLine(to: CGPoint(x: c.x, y: c.y - s.height * 0.04))
-                    p.addLine(to: CGPoint(x: c.x + s.width * 0.08, y: c.y + s.height * 0.04))
-                    ctx.stroke(p, with: ink, style: StrokeStyle(lineWidth: max(1.2, s.width * 0.07), lineCap: .round, lineJoin: .round))
+    private func pose(t: Double) -> Pose {
+        switch state {
+        case .running, .thinking:
+            // One roll per period: tumble a quarter turn while hopping, then rest a beat.
+            let period = { if case .thinking = state { return 1.35 }; return 0.85 }()
+            let n = Int(floor(t / period))
+            let p = (t - Double(n) * period) / period
+            let rollLen = 0.5
+            let dir: Double = n % 2 == 0 ? 1 : -1
+            func faceFor(_ k: Int) -> Int { ((k % 6 + 6) % 6 * 5 + 2) % 6 + 1 }
+            if p < rollLen {
+                let q = p / rollLen
+                let e = q < 0.5 ? 2 * q * q : 1 - pow(-2 * q + 2, 2) / 2     // ease in-out
+                let hop = sin(.pi * q)
+                return Pose(face: q < 0.5 ? faceFor(n - 1) : faceFor(n), angle: dir * 90 * e,
+                            dx: CGFloat(dir * sin(.pi * q)) * size * 0.1, dy: -CGFloat(hop) * size * 0.22, squash: 1)
+            }
+            // Landing: a small squash right after touchdown.
+            let land = (p - rollLen) / (1 - rollLen)
+            let squash = land < 0.25 ? 1 - CGFloat(sin(.pi * land / 0.25)) * 0.12 : 1
+            return Pose(face: faceFor(n), angle: 0, dx: 0, dy: 0, squash: squash)
+        case .waitingOnYou:
+            // Rattle in place, a burst every second or so.
+            let p = t.truncatingRemainder(dividingBy: 1.1)
+            let shake = p < 0.4 ? sin(p * 70) * (1 - p / 0.4) : 0
+            return Pose(face: 3, angle: shake * 14, dx: CGFloat(shake) * size * 0.06, dy: 0, squash: 1)
+        case .finished:
+            return Pose(face: 6, angle: 0, dx: 0, dy: 0, squash: 1)
+        case .idle:
+            return Pose(face: 1, angle: 0, dx: 0, dy: 0, squash: 1)
+        }
+    }
+
+    private func die(t: Double) -> some View {
+        let pz = animated || at != nil ? pose(t: t) : pose(t: state.isWorking ? 0.84 : t)
+        let color = state.isVisible ? state.color : Color.white.opacity(0.35)
+        return Canvas { ctx, s in
+            let r = CGRect(origin: .zero, size: s).insetBy(dx: s.width * 0.14, dy: s.height * 0.14)
+            ctx.fill(Path(roundedRect: r, cornerRadius: r.width * 0.26, style: .continuous), with: .color(color))
+            // A soft top highlight so it reads as a little cube.
+            ctx.fill(Path(roundedRect: CGRect(x: r.minX + r.width * 0.12, y: r.minY + r.height * 0.06,
+                                              width: r.width * 0.76, height: r.height * 0.16), cornerRadius: r.height * 0.08),
+                     with: .color(.white.opacity(0.22)))
+            let pip = max(1.1, r.width * 0.1)
+            let g: [CGFloat] = [0.25, 0.5, 0.75]
+            let spots: [(Int, Int)] = {
+                switch pz.face {
+                case 1: return [(1, 1)]
+                case 2: return [(0, 0), (2, 2)]
+                case 3: return [(0, 0), (1, 1), (2, 2)]
+                case 4: return [(0, 0), (2, 0), (0, 2), (2, 2)]
+                case 5: return [(0, 0), (2, 0), (1, 1), (0, 2), (2, 2)]
+                default: return [(0, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2)]
                 }
-            case .idle:
-                for dx in [-gap, gap] {
-                    var p = Path()
-                    p.move(to: CGPoint(x: r.midX + dx - s.width * 0.07, y: eyeY + s.height * 0.04))
-                    p.addLine(to: CGPoint(x: r.midX + dx + s.width * 0.07, y: eyeY + s.height * 0.04))
-                    ctx.stroke(p, with: ink, style: StrokeStyle(lineWidth: max(1.2, s.width * 0.07), lineCap: .round))
-                }
-            default:
-                // Eyes: glance side to side while working, wide while waiting, blink now and then.
-                let blink = animated && t.truncatingRemainder(dividingBy: 4.2) < 0.12
-                let look: CGFloat = {
-                    guard animated, state.isWorking else { return 0 }
-                    return CGFloat(sin(t * 1.3)) * s.width * 0.06
-                }()
-                let lift: CGFloat = { if case .thinking = state { return -s.height * 0.05 }; return 0 }()
-                let w = s.width * (state.isWaiting ? 0.15 : 0.12)
-                let h = blink ? s.height * 0.025 : s.height * (state.isWaiting ? 0.2 : 0.17)
-                for dx in [-gap, gap] {
-                    let e = CGRect(x: r.midX + dx - w / 2 + look, y: eyeY - h / 2 + lift, width: w, height: h)
-                    ctx.fill(Path(roundedRect: e, cornerRadius: w / 2), with: ink)
-                }
+            }()
+            for (x, y) in spots {
+                let c = CGPoint(x: r.minX + r.width * g[x], y: r.minY + r.height * g[y])
+                ctx.fill(Path(ellipseIn: CGRect(x: c.x - pip, y: c.y - pip, width: pip * 2, height: pip * 2)),
+                         with: .color(HUD.ink.opacity(0.9)))
             }
         }
-        .offset(y: hop)
+        .scaleEffect(x: 2 - pz.squash, y: pz.squash, anchor: .bottom)
+        .rotationEffect(.degrees(pz.angle))
+        .offset(x: pz.dx, y: pz.dy)
     }
 }
 
@@ -122,7 +147,7 @@ struct LiveSessionRow: View {
         let state = session.live(at: now)
         Button { Jump.go(to: session) } label: {
             HStack(alignment: .center, spacing: 10) {
-                Buddy(state: state, size: compact ? 16 : 20, animated: animated)
+                Die(state: state, size: compact ? 16 : 20, animated: animated)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(session.title).font(.system(size: compact ? 12 : 12.5, weight: .semibold)).lineLimit(1)
