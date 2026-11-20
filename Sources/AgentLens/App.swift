@@ -12,6 +12,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var dropdown: DropdownController!
     private var dashboard: NSWindow?
     private var iconTimer: Timer?
+    private var rollTimer: Timer?
+    private var glyphState: MenuGlyph.State = .idle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // `open -n AgentLens.app --args --ax-structure <bundle id> <file>`: write that app's window structure and quit.
@@ -92,7 +94,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         Pill.shared.update()
         Limits.shared.refreshIfNeeded(store.sessions, now: now)
         guard let button = statusItem.button else { return }
-        button.image = MenuGlyph.image(waiting ? .waiting : (working > 0 ? .working : .idle))
+        setGlyph(waiting ? .waiting : (working > 0 ? .working : .idle))
         button.attributedTitle = working > 0 && Preferences.shared.showCount
             ? NSAttributedString(string: "\(working)", attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
@@ -102,6 +104,28 @@ final class AppController: NSObject, NSApplicationDelegate {
         button.imageHugsTitle = true
         button.toolTip = waiting ? "An agent is waiting on you"
             : working > 0 ? "\(working) agent\(working == 1 ? "" : "s") working" : "AgentLens"
+    }
+
+    /// Keeps the die still when idle, and rolls it (about 20 frames a second) while agents work or wait.
+    private func setGlyph(_ state: MenuGlyph.State) {
+        glyphState = state
+        let animate = state != .idle && Preferences.shared.animateIcon
+        if animate, rollTimer == nil {
+            let t = Timer(timeInterval: 1.0 / 20, repeats: true) { _ in
+                Task { @MainActor in AppController.shared.drawGlyph() }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            rollTimer = t
+        } else if !animate {
+            rollTimer?.invalidate()
+            rollTimer = nil
+        }
+        drawGlyph()
+    }
+
+    private func drawGlyph() {
+        let t = rollTimer == nil ? 0.3 : Date().timeIntervalSinceReferenceDate
+        statusItem.button?.image = MenuGlyph.image(glyphState, t: t)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

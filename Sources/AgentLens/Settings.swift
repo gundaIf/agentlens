@@ -16,6 +16,7 @@ final class Preferences {
     var expanded: Bool { didSet { d.set(expanded, forKey: "menuExpanded") } }
     /// The number of working agents next to the menu bar icon.
     var showCount: Bool { didSet { d.set(showCount, forKey: "showCount"); AppController.shared.updateIcon() } }
+    var animateIcon: Bool { didSet { d.set(animateIcon, forKey: "animateIcon"); AppController.shared.updateIcon() } }
     /// Agent groups the user turned off (by `AgentGroup.id`).
     private(set) var hidden: Set<String> { didSet { d.set(Array(hidden), forKey: "hiddenAgents") } }
     /// The live pill under the notch (or floating on Macs without one).
@@ -35,6 +36,7 @@ final class Preferences {
     private init() {
         expanded = d.object(forKey: "menuExpanded") as? Bool ?? false
         showCount = d.object(forKey: "showCount") as? Bool ?? true
+        animateIcon = d.object(forKey: "animateIcon") as? Bool ?? true
         hidden = Set(d.stringArray(forKey: "hiddenAgents") ?? [])
         keepHistory = d.object(forKey: "keepHistory") as? Bool ?? true
         pill = d.object(forKey: "pill") as? Bool ?? true
@@ -277,8 +279,12 @@ struct SettingsView: View {
                     HUDSwitch(isOn: prefs.launchAtLogin) { prefs.setLaunchAtLogin($0) }
                 }
                 SettingsRow(symbol: "number", tint: Color(hex: 0x3D7BFF), title: "Count in menu bar",
-                            subtitle: "How many agents are working", divider: false) {
+                            subtitle: "How many agents are working") {
                     HUDSwitch(isOn: prefs.showCount) { prefs.showCount = $0 }
+                }
+                SettingsRow(symbol: "die.face.5.fill", tint: Color(hex: 0x5BD68A), title: "Roll the die",
+                            subtitle: "The menu bar die tumbles while agents work", divider: false) {
+                    HUDSwitch(isOn: prefs.animateIcon) { prefs.animateIcon = $0 }
                 }
             }
 

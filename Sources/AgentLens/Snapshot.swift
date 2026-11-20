@@ -64,6 +64,14 @@ enum Snapshot {
             Die(state: .finished(at: now), size: 40, at: 0)
             Die(state: .idle, size: 40, at: 0)
         }.padding(14).background(Color.black), "die-states", dir, .dark, scale: 2)
+        // The menu bar die: idle, waiting, then one roll, on dark and light menu bars.
+        var frames: [(MenuGlyph.State, Double)] = [(.idle, 0), (.waiting, 0.05)]
+        for i in 0..<8 { frames.append((.working, 0.85 * 3 + Double(i) * 0.85 / 8)) }
+        let images: [NSImage] = frames.map { MenuGlyph.image($0.0, t: $0.1) }
+        save(VStack(spacing: 0) {
+            GlyphStrip(images: images, fg: .white, bg: Color(hex: 0x2A2A30))
+            GlyphStrip(images: images, fg: .black, bg: Color(hex: 0xE8E6E1))
+        }, "menu-glyph", dir, .dark, scale: 4)
         save(AppIconArt(), "AppIcon", dir, .dark, scale: 1)
     }
 
@@ -74,5 +82,19 @@ enum Snapshot {
         guard let cg = r.cgImage else { return }
         let rep = NSBitmapImageRep(cgImage: cg)
         try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(name).png"))
+    }
+}
+
+private struct GlyphStrip: View {
+    let images: [NSImage]
+    let fg: Color
+    let bg: Color
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(0..<images.count, id: \.self) { i in
+                Image(nsImage: images[i]).renderingMode(.template).foregroundStyle(fg)
+            }
+        }
+        .padding(.horizontal, 12).frame(height: 24).background(bg)
     }
 }

@@ -128,47 +128,84 @@ struct AppIconArt: View {
 enum MenuGlyph {
     enum State { case idle, working, waiting }
 
-    /// Monochrome template image so macOS tints it for light/dark menu bars.
-    static func image(_ state: State) -> NSImage {
+    /// A tiny die, as a monochrome template image so macOS tints it for light/dark menu bars.
+    /// Idle: an outlined die showing one. Working: a solid die that tumbles and hops (pass the time `t`).
+    /// Waiting: a solid die that rattles in place.
+    static func image(_ state: State, t: Double = 0) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.black.setStroke()
-            NSColor.black.setFill()
-            let c = NSPoint(x: rect.midX, y: rect.midY)
-
-            // Corner brackets: the scanner's bounding box.
-            let b = NSBezierPath()
-            let inset: CGFloat = 1.5, l: CGFloat = 4
-            let r = rect.insetBy(dx: inset, dy: inset)
-            for (x, y, dx, dy) in [(r.minX, r.minY, 1.0, 1.0), (r.maxX, r.minY, -1.0, 1.0),
-                                   (r.minX, r.maxY, 1.0, -1.0), (r.maxX, r.maxY, -1.0, -1.0)] {
-                b.move(to: NSPoint(x: x + dx * l, y: y))
-                b.line(to: NSPoint(x: x, y: y))
-                b.line(to: NSPoint(x: x, y: y + dy * l))
-            }
-            b.lineWidth = 1.5
-            b.stroke()
-
+            var face = 1, angle = 0.0, dx: CGFloat = 0, dy: CGFloat = 0, squash: CGFloat = 1
             switch state {
-            case .idle:
-                // Small reticle.
-                let ring = NSBezierPath(ovalIn: NSRect(x: c.x - 3, y: c.y - 3, width: 6, height: 6))
-                ring.lineWidth = 1.4
-                ring.stroke()
+            case .idle: break
             case .working:
-                // Locked on: filled target with crosshair ticks.
-                NSBezierPath(ovalIn: NSRect(x: c.x - 3.4, y: c.y - 3.4, width: 6.8, height: 6.8)).fill()
-                let t = NSBezierPath()
-                for (dx, dy) in [(0.0, 1.0), (0.0, -1.0), (1.0, 0.0), (-1.0, 0.0)] {
-                    t.move(to: NSPoint(x: c.x + dx * 4.6, y: c.y + dy * 4.6))
-                    t.line(to: NSPoint(x: c.x + dx * 6.4, y: c.y + dy * 6.4))
+                let period = 0.85, n = Int(floor(t / period))
+                let p = (t - Double(n) * period) / period
+                let dir: Double = n % 2 == 0 ? 1 : -1
+                func faceFor(_ k: Int) -> Int { ((k % 6 + 6) % 6 * 5 + 2) % 6 + 1 }
+                if p < 0.5 {
+                    let q = p / 0.5
+                    let e = q < 0.5 ? 2 * q * q : 1 - pow(-2 * q + 2, 2) / 2
+                    face = q < 0.5 ? faceFor(n - 1) : faceFor(n)
+                    angle = -dir * 90 * e
+                    dx = CGFloat(dir * sin(.pi * q)) * 1.2
+                    dy = CGFloat(sin(.pi * q)) * 1.2
+                } else {
+                    face = faceFor(n)
+                    let land = (p - 0.5) / 0.5
+                    if land < 0.25 { squash = 1 - CGFloat(sin(.pi * land / 0.25)) * 0.12 }
                 }
-                t.lineWidth = 1.4
-                t.stroke()
             case .waiting:
-                NSBezierPath(roundedRect: NSRect(x: c.x - 0.9, y: c.y - 0.4, width: 1.8, height: 4.6), xRadius: 0.9, yRadius: 0.9).fill()
-                NSBezierPath(ovalIn: NSRect(x: c.x - 1, y: c.y - 3.4, width: 2, height: 2)).fill()
+                face = 3
+                let p = t.truncatingRemainder(dividingBy: 1.1)
+                let shake = p < 0.4 ? sin(p * 70) * (1 - p / 0.4) : 0
+                angle = shake * 14
+                dx = CGFloat(shake) * 0.8
             }
+
+            let side: CGFloat = 11
+            let base = NSPoint(x: rect.midX + dx, y: rect.midY - side / 2 + dy)   // bottom-centre of the die
+            let ctx = NSGraphicsContext.current!.cgContext
+            ctx.saveGState()
+            ctx.translateBy(x: base.x, y: base.y + side / 2)
+            ctx.rotate(by: CGFloat(angle * .pi / 180))
+            ctx.translateBy(x: 0, y: -side / 2)
+            ctx.scaleBy(x: 2 - squash, y: squash)
+            let body = NSRect(x: -side / 2, y: 0, width: side, height: side)
+            let shape = NSBezierPath(roundedRect: body, xRadius: 3, yRadius: 3)
+
+            let pip: CGFloat = 1.25
+            let g: [CGFloat] = [0.25, 0.5, 0.75]
+            let spots: [(Int, Int)] = {
+                switch face {
+                case 1: return [(1, 1)]
+                case 2: return [(0, 0), (2, 2)]
+                case 3: return [(0, 0), (1, 1), (2, 2)]
+                case 4: return [(0, 0), (2, 0), (0, 2), (2, 2)]
+                case 5: return [(0, 0), (2, 0), (1, 1), (0, 2), (2, 2)]
+                default: return [(0, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2)]
+                }
+            }()
+            let pips = NSBezierPath()
+            for (x, y) in spots {
+                let c = NSPoint(x: body.minX + side * g[x], y: body.minY + side * g[y])
+                let r = face == 1 ? pip * 1.3 : pip
+                pips.appendOval(in: NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+            }
+
+            NSColor.black.set()
+            if state == .idle {
+                shape.lineWidth = 1.4
+                let inner = NSBezierPath(roundedRect: body.insetBy(dx: 0.7, dy: 0.7), xRadius: 2.4, yRadius: 2.4)
+                inner.lineWidth = 1.4
+                inner.stroke()
+                pips.fill()
+            } else {
+                // Solid die with the pips punched out.
+                shape.fill()
+                ctx.setBlendMode(.clear)
+                pips.fill()
+            }
+            ctx.restoreGState()
             return true
         }
         image.isTemplate = true
