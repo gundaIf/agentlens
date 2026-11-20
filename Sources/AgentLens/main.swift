@@ -20,6 +20,16 @@ if let i = CommandLine.arguments.firstIndex(of: "--follow"), i + 1 < CommandLine
     exit(0)
 }
 
+// `AgentLens --jump-test`: for each live session, which app "Go to" would bring forward.
+if CommandLine.arguments.contains("--jump-test") {
+    let now = Date()
+    for s in (Worker().scanNow()?.sessions ?? []) where s.live(at: now).isVisible {
+        let app = MainActor.assumeIsolated { Jump.app(for: s) }
+        print("\(s.source.rawValue) · \(s.title.prefix(40)) · \(s.cwd) → \(app?.localizedName ?? "dashboard (no host found)")")
+    }
+    exit(0)
+}
+
 // `AgentLens --dump` prints what the app sees, for checking the numbers without the UI.
 if CommandLine.arguments.contains("--dump") {
     let result = Worker().scanNow()

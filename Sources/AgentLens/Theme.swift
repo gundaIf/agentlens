@@ -18,15 +18,15 @@ extension Category {
     /// reading and browsing sit in the cool violet → blue end, waiting is alarm red.
     var color: Color {
         switch self {
-        case .thinking: return Color(hex: 0xFF3FA4)
-        case .shell: return Color(hex: 0xFF8A1F)
-        case .reading: return Color(hex: 0x8E6BFF)
-        case .editing: return Color(hex: 0xFFE14A)
-        case .browser: return Color(hex: 0x3D7BFF)
-        case .web: return Color(hex: 0x22D3EE)
-        case .subagent: return Color(hex: 0xB6F23C)
-        case .waiting: return Color(hex: 0xFF3B30)
-        case .other: return Color(hex: 0x8C8A99)
+        case .thinking: return Color(hex: 0xF27AB8)
+        case .shell: return Color(hex: 0xF5A15B)
+        case .reading: return Color(hex: 0xA594F9)
+        case .editing: return Color(hex: 0xF2CC60)
+        case .browser: return Color(hex: 0x6EA8F7)
+        case .web: return Color(hex: 0x5FCFE0)
+        case .subagent: return Color(hex: 0xA8D672)
+        case .waiting: return Color(hex: 0xF2706B)
+        case .other: return Color(hex: 0x8E8E96)
         }
     }
 
@@ -132,6 +132,13 @@ extension LiveState {
 }
 
 extension TimeInterval {
+    /// Time left until a reset: "45m", "2h 10m", "10d 5h".
+    var countdown: String {
+        let s = Int(max(self, 0))
+        if s >= 2 * 86400 { return "\(s / 86400)d \((s % 86400) / 3600)h" }
+        return clock
+    }
+
     /// "2h 14m", "14m", "45s": no seconds once past ten minutes.
     var clock: String {
         let s = Int(self.rounded())
@@ -142,28 +149,30 @@ extension TimeInterval {
     }
 }
 
-// MARK: - HUD tokens
+// MARK: - Tokens
 
-/// The instrument look: black ground, thermal accents, phosphor green for "live", cream paper for labels.
+/// Calm, neutral surfaces with colour reserved for state and categories.
+/// (Names kept from the earlier HUD look so every view picks up the new tokens.)
 enum HUD {
-    static let ink = Color(hex: 0x09080D)          // window ground
-    static let panel = Color(hex: 0x111018)        // framed panels
-    static let raised = Color(hex: 0x1A1824)       // rows, tiles
-    static let line = Color.white.opacity(0.11)    // frames
-    static let bracket = Color.white.opacity(0.55) // corner brackets
-    static let dim = Color.white.opacity(0.42)
-    static let paper = Color(hex: 0xEDE6CF)        // name tags (Pioneers' cream)
-    static let paperInk = Color(hex: 0x15131C)
-    static let phosphor = Color(hex: 0x39FF6A)     // live / OK
-    static let alarm = Color(hex: 0xFF3B30)
+    static let ink = Color(hex: 0x111114)          // window ground
+    static let panel = Color(hex: 0x18181C)        // cards
+    static let raised = Color(hex: 0x202026)       // rows, tiles, hover
+    static let line = Color.white.opacity(0.07)    // hairlines
+    static let bracket = Color.clear               // corner brackets retired
+    static let dim = Color.white.opacity(0.48)
+    static let paper = Color(hex: 0xF2F2F4)        // primary button fill
+    static let paperInk = Color(hex: 0x111114)
+    static let phosphor = Color(hex: 0x5BD68A)     // live / OK
+    static let alarm = Color(hex: 0xF2706B)        // needs you
+    static let amber = Color(hex: 0xF2B544)        // warnings, pace
 
-    /// Cold → hot, as on a thermal camera's scale.
+    /// Kept for charts that want a ramp (heatmap): cool → warm, softened.
     static let thermal: [Color] = [
-        Color(hex: 0x2B1BFF), Color(hex: 0x8E2BFF), Color(hex: 0xFF2E9A),
-        Color(hex: 0xFF5A2E), Color(hex: 0xFFA21F), Color(hex: 0xFFF04A),
+        Color(hex: 0x3A3F6B), Color(hex: 0x6B5FB8), Color(hex: 0xB86FC4),
+        Color(hex: 0xE58A9A), Color(hex: 0xF2A86B), Color(hex: 0xF2CC60),
     ]
 
-    /// A colour on the thermal scale, 0 (cold) … 1 (hot).
+    /// A colour on the ramp, 0 (cold) … 1 (hot).
     static func heat(_ t: Double) -> Color {
         let t = min(max(t, 0), 1) * Double(thermal.count - 1)
         let i = min(Int(t), thermal.count - 2)
@@ -179,32 +188,32 @@ enum HUD {
 }
 
 extension Font {
-    /// Readouts and labels: monospaced, like an instrument display.
+    /// Readouts and labels. Was monospaced everywhere; now the system face with tabular digits,
+    /// so numbers line up without the instrument-panel look.
     static func hud(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size, weight: weight).monospacedDigit()
     }
-    static let heroNumber = Font.system(size: 34, weight: .semibold, design: .monospaced)
-    static let tileNumber = Font.system(size: 18, weight: .semibold, design: .monospaced)
-    static let eyebrow = Font.system(size: 10, weight: .semibold, design: .monospaced)
+    static let heroNumber = Font.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit()
+    static let tileNumber = Font.system(size: 18, weight: .semibold, design: .rounded).monospacedDigit()
+    static let eyebrow = Font.system(size: 11.5, weight: .semibold)
+    /// Big numbers: rounded, tabular.
+    static func number(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
+        .system(size: size, weight: weight, design: .rounded).monospacedDigit()
+    }
 }
 
-/// Section label: "▸ NOW", in monospaced caps.
+/// Section label, in sentence case.
 struct Eyebrow: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        HStack(spacing: 5) {
-            Text("▸").foregroundStyle(HUD.phosphor.opacity(0.85))
-            Text(text.uppercased()).foregroundStyle(HUD.dim)
-        }
-        .font(.eyebrow)
-        .tracking(1.2)
+        Text(text).font(.eyebrow).foregroundStyle(.secondary)
     }
 }
 
 // MARK: - Surfaces
 
-/// L-shaped marks at each corner, as on a scanner's bounding box.
+/// L-shaped corner marks. No longer drawn by default; kept for the app icon.
 struct CornerBrackets: Shape {
     var length: CGFloat = 7
     func path(in r: CGRect) -> Path {
@@ -220,61 +229,39 @@ struct CornerBrackets: Shape {
     }
 }
 
-/// Faint CRT scanlines.
-struct Scanlines: View {
-    var spacing: CGFloat = 3
-    var opacity: Double = 0.16
-    var body: some View {
-        Canvas { ctx, size in
-            var y: CGFloat = 0
-            while y < size.height {
-                ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(.black.opacity(opacity)))
-                y += spacing
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-/// A framed instrument panel: dark fill, hairline frame, bright corner brackets.
+/// A card: soft fill, one hairline, generous radius.
 struct Surface: ViewModifier {
-    var radius: CGFloat = 3
-    var padding: CGFloat = 12
+    var radius: CGFloat = 12
+    var padding: CGFloat = 14
     func body(content: Content) -> some View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(HUD.panel, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(HUD.line, lineWidth: 1))
-            .overlay(CornerBrackets().stroke(HUD.bracket, lineWidth: 1.2).padding(-0.5))
     }
 }
 
 extension View {
-    func surface(radius: CGFloat = 3, padding: CGFloat = 12) -> some View {
-        modifier(Surface(radius: radius, padding: padding))
+    /// Old call sites pass radius 3 (the HUD look); anything under 8 becomes the standard card radius.
+    func surface(radius: CGFloat = 12, padding: CGFloat = 14) -> some View {
+        modifier(Surface(radius: radius < 8 ? 12 : radius, padding: max(padding, 12)))
     }
 
-    /// CRT treatment for hero visuals: scanlines and a soft vignette.
+    /// The CRT treatment is retired; a soft rounded clip remains.
     func crt() -> some View {
-        overlay(Scanlines())
-            .overlay(RadialGradient(colors: [.clear, .black.opacity(0.35)], center: .center, startRadius: 40, endRadius: 400)
-                .allowsHitTesting(false))
+        clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
-/// Dotted divider, like the scanner's connector lines.
+/// Divider.
 struct Hairline: View {
     var body: some View {
-        GeometryReader { g in
-            Path { p in p.move(to: .zero); p.addLine(to: CGPoint(x: g.size.width, y: 0)) }
-                .stroke(Color.white.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [1, 3]))
-        }
-        .frame(height: 1)
+        Rectangle().fill(HUD.line).frame(height: 1)
     }
 }
 
-/// Small tag. `paper` draws the cream name-tag style from the references.
+/// Small tag. `paper` draws a filled light tag.
 struct Chip: View {
     let text: String
     var symbol: String? = nil
@@ -284,29 +271,25 @@ struct Chip: View {
     var body: some View {
         HStack(spacing: 4) {
             if let symbol { Image(systemName: symbol).imageScale(.small) }
-            Text(text.uppercased()).lineLimit(1)
+            Text(text).lineLimit(1)
         }
-        .font(.hud(9.5, .semibold))
-        .tracking(0.6)
+        .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(paper ? HUD.paperInk : tint)
-        .padding(.horizontal, 6).padding(.vertical, 2.5)
-        .background(paper ? HUD.paper : tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 2))
-        .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(paper ? .clear : tint.opacity(0.45), lineWidth: 0.8))
+        .padding(.horizontal, 7).padding(.vertical, 2.5)
+        .background(paper ? HUD.paper : tint.opacity(0.13), in: Capsule())
     }
 }
 
-/// Cream name tag with a status dot, as on the thermal scan's labels.
+/// A title with a status dot.
 struct NameTag: View {
     let text: String
     var dot: Color? = nil
     var body: some View {
-        HStack(spacing: 6) {
-            Text(text).font(.hud(11, .semibold)).foregroundStyle(HUD.paperInk).lineLimit(1)
+        HStack(spacing: 7) {
+            if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
+            Text(text).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
             Spacer(minLength: 4)
-            if let dot { Circle().fill(dot).frame(width: 7, height: 7) }
         }
-        .padding(.horizontal, 6).padding(.vertical, 3)
-        .background(HUD.paper.opacity(0.94), in: Rectangle())
     }
 }
 
@@ -327,29 +310,6 @@ struct Reticle: View {
     }
 }
 
-/// The thermal scale with tick marks, used as an edge rule on hero panels.
-struct ThermalRule: View {
-    var vertical = true
-    var body: some View {
-        Canvas { ctx, size in
-            let len = vertical ? size.height : size.width
-            let barRect = vertical ? CGRect(x: 0, y: 0, width: 5, height: size.height) : CGRect(x: 0, y: size.height - 5, width: size.width, height: 5)
-            ctx.fill(Path(barRect), with: .linearGradient(Gradient(colors: vertical ? HUD.thermal.reversed() : HUD.thermal),
-                                                         startPoint: .zero, endPoint: vertical ? CGPoint(x: 0, y: len) : CGPoint(x: len, y: 0)))
-            var i = 0
-            var t: CGFloat = 0
-            while t <= len {
-                let major = i % 5 == 0
-                let w: CGFloat = major ? 6 : 3
-                let r = vertical ? CGRect(x: 7, y: t, width: w, height: 0.8) : CGRect(x: t, y: size.height - 7 - w, width: 0.8, height: w)
-                ctx.fill(Path(r), with: .color(.white.opacity(major ? 0.5 : 0.25)))
-                t += 4; i += 1
-            }
-        }
-        .frame(width: vertical ? 14 : nil, height: vertical ? nil : 14)
-    }
-}
-
 /// A status dot that breathes while an agent is working.
 struct PulseDot: View {
     let color: Color
@@ -360,10 +320,10 @@ struct PulseDot: View {
         if animated {
             TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
                 let t = ctx.date.timeIntervalSinceReferenceDate
-                let phase = (t.truncatingRemainder(dividingBy: 1.6)) / 1.6
+                let phase = (t.truncatingRemainder(dividingBy: 1.8)) / 1.8
                 dot.background(
-                    Circle().fill(color.opacity(0.35 * (1 - phase)))
-                        .frame(width: size * (1 + 1.4 * phase), height: size * (1 + 1.4 * phase))
+                    Circle().fill(color.opacity(0.28 * (1 - phase)))
+                        .frame(width: size * (1 + 1.2 * phase), height: size * (1 + 1.2 * phase))
                 )
             }
         } else {
@@ -374,6 +334,35 @@ struct PulseDot: View {
     private var dot: some View {
         Circle().fill(color).frame(width: size, height: size)
             .frame(width: size * 2.4, height: size * 2.4)
+    }
+}
+
+/// A segmented control drawn in SwiftUI (renders in snapshots, matches the cards).
+struct Segmented<T: Hashable>: View {
+    let options: [T]
+    @Binding var selection: T
+    let label: (T) -> String
+    @Namespace private var ns
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.self) { o in
+                let on = o == selection
+                Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selection = o } } label: {
+                    Text(label(o))
+                        .font(.system(size: 11.5, weight: on ? .semibold : .medium))
+                        .foregroundStyle(on ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background {
+                            if on { Capsule().fill(Color.white.opacity(0.12)).matchedGeometryEffect(id: "seg", in: ns) }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(Color.white.opacity(0.05), in: Capsule())
     }
 }
 
@@ -431,5 +420,21 @@ struct CategoryLegend: View {
 
     private func percent(_ f: Double) -> String {
         f < 0.01 ? "<1%" : "\(Int((f * 100).rounded()))%"
+    }
+}
+
+/// Faint scanlines, used only by the app icon artwork.
+struct Scanlines: View {
+    var spacing: CGFloat = 3
+    var opacity: Double = 0.16
+    var body: some View {
+        Canvas { ctx, size in
+            var y: CGFloat = 0
+            while y < size.height {
+                ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(.black.opacity(opacity)))
+                y += spacing
+            }
+        }
+        .allowsHitTesting(false)
     }
 }

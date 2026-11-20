@@ -16,6 +16,15 @@ Builds with the Xcode Command Line Tools alone; full Xcode isn't required. There
 - `AgentLens --install-hooks` / `--uninstall-hooks`: shows the `~/.claude/settings.json` diff and asks y/N before writing (same as the dashboard button)
 - `AGENTLENS_HOME=<dir>` points every path (transcripts, settings, events) at another home folder, for testing
 
+## Right now
+
+- **Menu.** Every running session, the ones that need you first: a small face that reads the room (glances around while working, red when it needs you, smiles when done), what it's doing, for how long, and where (project · branch). Click a row, or press **⌘1–⌘9**, to go to the terminal, editor or app the agent runs in (found from the agent's process and its parent app). **⌘↩** goes to the top one, **⌘D** opens the dashboard.
+- **⌃⌥↩ from anywhere** goes to the agent that needs you (no Accessibility permission needed).
+- **Live pill.** On Macs with a notch it grows out of the notch while agents run; elsewhere it floats as a small pill you can drag. Hover to open the session list. It drops open on its own when an agent starts waiting on you, then tucks away. It never takes focus, stays out of full-screen apps, and disappears when nothing is running. Settings → Live pill.
+- **Limits.** Codex's own rate-limit numbers (percent used, reset time) from its rollout files, and an estimate of Claude Code's 5-hour window: Claude Code saves no limit numbers locally, so AgentLens shows this window's output tokens against your busiest window in the last 30 days, marked "est." A tick shows how far through the window you are; the bar turns amber when you're using it faster than time is passing.
+- **Welcome.** First launch walks through what's read (and what never leaves the Mac), the agents found, and the optional extras. Settings → Advanced → Welcome tour shows it again.
+- `AgentLens --jump-test` prints which app "Go to" would bring forward for each live session.
+
 ## What it reads
 
 | Agent | Transcripts |

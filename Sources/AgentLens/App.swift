@@ -70,6 +70,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         dropdown = DropdownController(button: statusItem.button!, content: MenuView().environment(store))
 
         updateIcon()
+        HotKey.register()
+        Pill.shared.update()
+        Limits.shared.refreshIfNeeded(store.sessions)
+        // First run: the welcome window, once the first scan has had a moment.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { Onboarding.showIfNeeded() }
         if let i = CommandLine.arguments.firstIndex(of: "--film"), i + 1 < CommandLine.arguments.count {
             film(to: URL(fileURLWithPath: CommandLine.arguments[i + 1]))
         }
@@ -84,6 +89,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         let working = store.sessions.filter { $0.live(at: now).isWorking }.count
         let waiting = store.sessions.contains { if case .waitingOnYou = $0.live(at: now) { return true }; return false }
         Notifier.shared.check(store.sessions, now: now)
+        Pill.shared.update()
+        Limits.shared.refreshIfNeeded(store.sessions, now: now)
         guard let button = statusItem.button else { return }
         button.image = MenuGlyph.image(waiting ? .waiting : (working > 0 ? .working : .idle))
         button.attributedTitle = working > 0 && Preferences.shared.showCount
@@ -140,7 +147,7 @@ final class AppController: NSObject, NSApplicationDelegate {
                                   backing: .buffered, defer: false)
             window.title = "AgentLens"
             window.appearance = NSAppearance(named: .darkAqua)
-            window.backgroundColor = NSColor(red: 0.035, green: 0.031, blue: 0.051, alpha: 1)
+            window.backgroundColor = NSColor(HUD.ink)
             window.isReleasedWhenClosed = false
             window.contentViewController = NSHostingController(
                 rootView: DashboardView().environment(store).frame(minWidth: 900, minHeight: 560))

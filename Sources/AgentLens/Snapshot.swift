@@ -7,6 +7,7 @@ enum Snapshot {
     static func render(to dir: URL) {
         let store = Store()
         store.loadNow()
+        Limits.shared.refreshIfNeeded(store.sessions)
         AppUsage.shared.loadOnly()
         let bg = ScannerGround()
         for scheme in [ColorScheme.dark] {
@@ -34,6 +35,18 @@ enum Snapshot {
                  "session-subagents", dir, .dark)
         }
         save(HookDiffSheet(plan: HookInstaller.plan(install: true), scrolls: false) {}.environment(store).background(bg), "hooks-sheet", dir, .dark)
+        // The live pill: notch and floating, folded and open.
+        for (name, notch, open) in [("pill-notch", true, false), ("pill-notch-open", true, true),
+                                    ("pill-floating", false, false), ("pill-floating-open", false, true)] {
+            let st = PillState()
+            st.expanded = open
+            if notch { st.notchWidth = 185; st.notchHeight = 32 }
+            save(PillContent(state: st, animated: false, fixedNow: Date()).environment(store).padding(20).background(Color(white: 0.85)),
+                 name, dir, .dark)
+        }
+        for i in 0..<3 {
+            save(OnboardingView(startStep: i) {}.environment(store), "welcome-\(i + 1)", dir, .dark)
+        }
         save(AppIconArt(), "AppIcon", dir, .dark, scale: 1)
     }
 

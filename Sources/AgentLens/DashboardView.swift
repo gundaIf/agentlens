@@ -27,20 +27,9 @@ struct DashboardView: View {
     }
 }
 
-/// Window ground: black ink with a faint scanner grid.
+/// Window ground: plain ink.
 struct ScannerGround: View {
-    var body: some View {
-        ZStack {
-            HUD.ink
-            Canvas { ctx, size in
-                stride(from: 0.0, through: max(size.width, size.height), by: 32).forEach { v in
-                    ctx.fill(Path(CGRect(x: v, y: 0, width: 0.5, height: size.height)), with: .color(.white.opacity(0.025)))
-                    ctx.fill(Path(CGRect(x: 0, y: v, width: size.width, height: 0.5)), with: .color(.white.opacity(0.025)))
-                }
-            }
-        }
-        .ignoresSafeArea()
-    }
+    var body: some View { HUD.ink.ignoresSafeArea() }
 }
 
 // MARK: - Sidebar
@@ -258,9 +247,6 @@ struct OverviewView: View {
         let states = store.sessions.map { $0.live(at: now) }
         let working = states.filter(\.isWorking).count
         let waiting = states.filter { if case .waitingOnYou = $0 { return true }; return false }.count
-        let seen = Set(store.sessions.filter { w.agg.sessionIDs.contains($0.id) }.map(\.source))
-        let sources = [Source.claudeCode, .cowork, .claudeChat, .codex, .chatgptChat, .grok, .muse, .grokBot].filter(seen.contains).map(\.rawValue).joined(separator: " / ")
-        let host = Host.current().localizedName ?? "This Mac"
 
         let (headline, tint): (String, Color) = {
             if waiting > 0 { return ("\(waiting) agent\(waiting == 1 ? "" : "s") waiting on you", HUD.alarm) }
@@ -270,34 +256,13 @@ struct OverviewView: View {
         }()
 
         return VStack(alignment: .leading, spacing: 10) {
-            // System strip, after the scanner poster's top bar.
-            HStack(spacing: 9) {
-                Text("+")
-                Text("AgentLens")
-                Text("·").foregroundStyle(.tertiary)
-                Text("System status")
-                Text("·").foregroundStyle(.tertiary)
-                Text("Scan: \(range.rawValue)").foregroundStyle(HUD.paper)
-                if !sources.isEmpty {
-                    Text("·").foregroundStyle(.tertiary)
-                    Text(sources)
-                }
-                Spacer(minLength: 12)
-                Text(host)
-                Text("+")
-            }
-            .font(.hud(9.5, .semibold)).tracking(1.1).textCase(.uppercase)
-            .foregroundStyle(HUD.dim).lineLimit(1)
-
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         PulseDot(color: tint, animated: scrolls && (working > 0 || waiting > 0), size: 7)
                             .frame(width: 14, height: 14)
-                        Text(headline.uppercased())
-                            .font(.hud(19, .bold)).tracking(1.3)
-                            .foregroundStyle(tint)
-                            .shadow(color: tint.opacity(0.45), radius: 8)
+                        Text(headline)
+                            .font(.system(size: 22, weight: .semibold))
                             .lineLimit(1)
                     }
                     Text(Insights.narrative(w, period: range.periodName, comparison: range.comparisonName,
@@ -307,10 +272,8 @@ struct OverviewView: View {
                 }
                 Spacer(minLength: 12)
                 HooksPanel()
-                Picker("", selection: rangeState.projectedValue) {
-                    ForEach(TimeRange.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 340)
+                Segmented(options: TimeRange.allCases, selection: rangeState.projectedValue) { $0.rawValue }
+                    .fixedSize()
             }
         }
         .padding(.bottom, 2)
@@ -318,11 +281,9 @@ struct OverviewView: View {
 
     private func hero(_ w: WindowStats) -> some View {
         HStack(alignment: .center, spacing: 22) {
-            ThermalRule().frame(height: 96)
             VStack(alignment: .leading, spacing: 6) {
                 Eyebrow("Agent time \(range.periodName)")
-                Text(w.agg.active.clock).font(.hud(32, .semibold))
-                    .shadow(color: Category.thinking.color.opacity(0.5), radius: 10)
+                Text(w.agg.active.clock).font(.number(38))
                 if let c = w.change {
                     HStack(spacing: 4) {
                         Image(systemName: c >= 0 ? "arrow.up.right" : "arrow.down.right")
@@ -341,7 +302,7 @@ struct OverviewView: View {
                 VStack(spacing: 0) {
                     let top = w.agg.byCategory.max { $0.value < $1.value }
                     Text(top.map { "\(Int(($0.value / w.agg.active * 100).rounded()))%" } ?? "")
-                        .font(.hud(18, .semibold))
+                        .font(.number(18))
                     Text(top?.key.title.lowercased() ?? "").font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
@@ -374,9 +335,8 @@ struct OverviewView: View {
                 }
                 DayRibbon(sessions: store.sessions, day: now, now: now, barHeight: 38)
                     .padding(10)
-                    .background(Color.black)
+                    .background(Color.black.opacity(0.25))
                     .crt()
-                    .overlay(CornerBrackets(length: 8).stroke(HUD.bracket, lineWidth: 1))
                 Hairline().padding(.vertical, 2)
                 Eyebrow("Sessions")
                 SessionLanes(sessions: store.sessions, day: now, now: now) { store.selection = $0 }
@@ -496,7 +456,10 @@ struct SessionDetail: View {
                     Text("\(session.chunks.count) step\(session.chunks.count == 1 ? "" : "s"), newest first")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
-                    Toggle("Show details", isOn: expandAllState.projectedValue).toggleStyle(.switch).controlSize(.small)
+                    HStack(spacing: 8) {
+                        Text("Show details").font(.system(size: 12)).foregroundStyle(.secondary)
+                        HUDSwitch(isOn: expandAll) { expandAllState.wrappedValue = $0 }
+                    }
                 }
                 .padding(.top, 6)
 
@@ -724,7 +687,7 @@ private struct RankCard: View {
                     GeometryReader { g in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.primary.opacity(0.05))
-                            Capsule().fill(HUD.heat(0.25 + 0.75 * v / maxV)).frame(width: max(3, g.size.width * v / maxV))
+                            Capsule().fill(Color.primary.opacity(0.35 + 0.35 * v / maxV)).frame(width: max(3, g.size.width * v / maxV))
                         }
                     }
                     .frame(height: 3)

@@ -54,18 +54,12 @@ struct DropdownChrome<Content: View>: View {
     static var bottomMargin: CGFloat { 30 }
 
     var body: some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 14,
-                                           bottomTrailingRadius: 14, topTrailingRadius: 5, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         content
             .environment(\.dropdownPresented, state.presented)
             .background(HUD.ink)
-            .overlay(alignment: .top) {
-                LinearGradient(colors: HUD.thermal, startPoint: .leading, endPoint: .trailing)
-                    .frame(height: 1.5)
-                    .opacity(0.9)
-            }
             .clipShape(shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
             // Unroll: reveal from the top edge down.
             .mask(alignment: .top) {
                 GeometryReader { g in
@@ -74,7 +68,6 @@ struct DropdownChrome<Content: View>: View {
                 .padding(.bottom, -40)
             }
             .shadow(color: .black.opacity(state.presented ? 0.55 : 0), radius: 18, y: 12)
-            .shadow(color: Category.thinking.color.opacity(state.presented ? 0.10 : 0), radius: 30, y: 6)
             .background(GeometryReader { g in
                 Color.clear
                     .onAppear { onSize(g.size) }

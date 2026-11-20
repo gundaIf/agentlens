@@ -18,6 +18,13 @@ final class Preferences {
     var showCount: Bool { didSet { d.set(showCount, forKey: "showCount"); AppController.shared.updateIcon() } }
     /// Agent groups the user turned off (by `AgentGroup.id`).
     private(set) var hidden: Set<String> { didSet { d.set(Array(hidden), forKey: "hiddenAgents") } }
+    /// The live pill under the notch (or floating on Macs without one).
+    var pill: Bool { didSet { d.set(pill, forKey: "pill"); Pill.shared.update() } }
+    var pillShape: PillShape { didSet { d.set(pillShape.rawValue, forKey: "pillShape"); Pill.shared.relayout() } }
+    /// Drop the pill open on its own when an agent starts waiting on you.
+    var pillAutoOpen: Bool { didSet { d.set(pillAutoOpen, forKey: "pillAutoOpen") } }
+    /// The welcome window has been through once.
+    var onboarded: Bool { didSet { d.set(onboarded, forKey: "onboarded") } }
     /// Keep sessions after Claude Code deletes its logs (30 days by default). Read by the store's worker.
     var keepHistory: Bool { didSet { d.set(keepHistory, forKey: "keepHistory") } }
     private(set) var launchAtLogin = false
@@ -28,6 +35,10 @@ final class Preferences {
         showCount = d.object(forKey: "showCount") as? Bool ?? true
         hidden = Set(d.stringArray(forKey: "hiddenAgents") ?? [])
         keepHistory = d.object(forKey: "keepHistory") as? Bool ?? true
+        pill = d.object(forKey: "pill") as? Bool ?? true
+        pillShape = PillShape(rawValue: d.string(forKey: "pillShape") ?? "") ?? .auto
+        pillAutoOpen = d.object(forKey: "pillAutoOpen") as? Bool ?? true
+        onboarded = d.bool(forKey: "onboarded")
         refreshLogin()
     }
 
@@ -120,7 +131,6 @@ struct HUDSwitch: View {
                 Capsule()
                     .fill(isOn ? HUD.phosphor.opacity(0.9) : Color.white.opacity(0.14))
                     .overlay(Capsule().strokeBorder(Color.white.opacity(isOn ? 0 : 0.10), lineWidth: 0.5))
-                    .shadow(color: isOn ? HUD.phosphor.opacity(0.45) : .clear, radius: 5)
                 Circle()
                     .fill(Color.white)
                     .shadow(color: .black.opacity(0.35), radius: 1.5, y: 1)
@@ -148,7 +158,7 @@ struct SettingsGroup<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let title {
-                Text(title.uppercased()).font(.hud(9.5, .semibold)).tracking(1.1).foregroundStyle(HUD.dim)
+                Text(title).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.secondary)
                     .padding(.leading, 4)
             }
             VStack(spacing: 0) { content }
@@ -246,7 +256,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("[", modifiers: .command)
                 Spacer()
-                Text("SETTINGS").font(.hud(11, .bold)).tracking(1.6)
+                Text("Settings").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 // Balances the Back button so the title stays centred.
                 Color.clear.frame(width: 44, height: 1)
@@ -269,6 +279,23 @@ struct SettingsView: View {
                 }
             }
 
+            SettingsGroup("Live pill") {
+                SettingsRow(symbol: "capsule.fill", tint: Color(hex: 0x3A3A44), title: "Show live pill",
+                            subtitle: Pill.shared.hasNotch ? "Under the notch while agents run" : "A small floating pill while agents run") {
+                    HUDSwitch(isOn: prefs.pill) { prefs.pill = $0 }
+                }
+                if prefs.pill {
+                    SettingsRow(symbol: "rectangle.topthird.inset.filled", tint: Color(hex: 0x3A3A44), title: "Shape") {
+                        Segmented(options: PillShape.allCases, selection: Binding(get: { prefs.pillShape }, set: { prefs.pillShape = $0 })) { $0.title }
+                            .fixedSize()
+                    }
+                    SettingsRow(symbol: "hand.raised.fill", tint: HUD.alarm, title: "Open when an agent needs you",
+                                subtitle: "Drops down on its own, then tucks away", divider: false) {
+                        HUDSwitch(isOn: prefs.pillAutoOpen) { prefs.pillAutoOpen = $0 }
+                    }
+                }
+            }
+
             SettingsGroup("Track") {
                 ForEach(Array(AgentGroup.all.enumerated()), id: \.element.id) { i, g in
                     SettingsRow(symbol: g.symbol, image: g.icon, tint: g.tint, title: g.name, subtitle: g.detail,
@@ -284,7 +311,7 @@ struct SettingsView: View {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { advancedState.wrappedValue.toggle() }
                 } label: {
                     HStack(spacing: 5) {
-                        Text("ADVANCED").font(.hud(9.5, .semibold)).tracking(1.1)
+                        Text("Advanced").font(.system(size: 11.5, weight: .semibold))
                         Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold))
                             .rotationEffect(.degrees(advanced ? 90 : 0))
                         Spacer()
@@ -315,6 +342,10 @@ struct SettingsView: View {
                         SettingsRow(symbol: "clock.arrow.circlepath", tint: Color(hex: 0x8E6BFF), title: "Keep history",
                                     subtitle: "Keep sessions after Claude Code deletes its logs (30 days). Stays on this Mac.") {
                             HUDSwitch(isOn: prefs.keepHistory) { prefs.keepHistory = $0 }
+                        }
+                        SettingsRow(symbol: "hand.wave.fill", tint: Color(hex: 0x5BD68A), title: "Welcome tour",
+                                    subtitle: "What AgentLens reads, and the optional extras") {
+                            RowButton(title: "Show") { Onboarding.show() }
                         }
                         SettingsRow(symbol: "folder.fill", tint: Color(hex: 0x3D7BFF), title: "Data folder",
                                     subtitle: "Usage, history, hook and window logs. Your data stays on this Mac.") {

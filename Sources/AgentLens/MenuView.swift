@@ -53,22 +53,25 @@ struct MenuView: View {
         let stats = Insights.stats(store.sessions, from: today, to: now,
                                    compareFrom: yesterday, compareTo: now.addingTimeInterval(-86400))
         let live = store.sessions.filter { $0.live(at: now).isVisible }
-            .sorted { rank($0.live(at: now)) < rank($1.live(at: now)) }
+            .sorted { ($0.live(at: now).rank, $1.end) < ($1.live(at: now).rank, $0.end) }
+        let working = live.filter { $0.live(at: now).isWorking }.count
+        let waiting = live.filter { $0.live(at: now).isWaiting }.count
         let insights = Insights.list(stats, periodName: "today")
         let apps = AppUsage.shared.apps.filter(\.isTracked)
+        let gauges = Limits.shared.gauges
+        let shown = Array(live.prefix(expanded ? 9 : 6))
 
         VStack(alignment: .leading, spacing: 0) {
-            // Header: mark, name, recording light, settings.
-            HStack(spacing: 7) {
-                LensMark(size: 15)
-                Text("AGENTLENS").font(.hud(11, .bold)).tracking(1.6)
-                Spacer()
-                if live.contains(where: { $0.live(at: now).isWorking }) {
-                    HStack(spacing: 4) {
-                        PulseDot(color: HUD.alarm, animated: animated, size: 5).frame(width: 8, height: 8)
-                        Text("REC").font(.hud(9.5, .bold)).foregroundStyle(HUD.alarm)
-                    }
+            // Header: mark, name, one-line status, settings.
+            HStack(spacing: 8) {
+                LensMark(size: 16)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("AgentLens").font(.system(size: 13, weight: .semibold))
+                    Text(status(working: working, waiting: waiting))
+                        .font(.system(size: 11)).foregroundStyle(waiting > 0 ? HUD.alarm : Color.secondary)
+                        .contentTransition(.opacity)
                 }
+                Spacer()
                 if UpdateChecker.shared.updateAvailable {
                     Button { NSWorkspace.shared.open(UpdateChecker.shared.latestURL ?? UpdateChecker.releasesURL) } label: {
                         Chip(text: "Update", symbol: "arrow.down.circle", tint: HUD.phosphor)
@@ -76,75 +79,79 @@ struct MenuView: View {
                     .buttonStyle(.plain)
                     .help("AgentLens \(UpdateChecker.shared.latest ?? "") is available")
                 }
-                IconButton(symbol: "gearshape", help: "Settings") { go(.settings) }
+                IconButton(symbol: "gearshape", help: "Settings (⌘,)") { go(.settings) }
                     .keyboardShortcut(",", modifiers: .command)
             }
-            .padding(.horizontal, 14).padding(.top, 11).padding(.bottom, 8)
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
             .cascade(0)
 
-            // Today, in one line.
-            VStack(alignment: .leading, spacing: 9) {
+            // Sessions, newest need-you first.
+            VStack(alignment: .leading, spacing: 2) {
+                if !store.loaded {
+                    Text("Reading transcripts…").font(.system(size: 12)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 10)
+                } else if live.isEmpty {
+                    HStack(spacing: 12) {
+                        Buddy(state: .idle, size: 26, animated: false)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("All quiet").font(.system(size: 12.5, weight: .semibold))
+                            Text("Agents show up here the moment they start.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 10)
+                } else {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { i, s in
+                        LiveSessionRow(session: s, now: now, index: i + 1, animated: animated)
+                    }
+                    if live.count > shown.count {
+                        Button { AppController.shared.openDashboard(select: nil) } label: {
+                            Text("+\(live.count - shown.count) more in the dashboard")
+                                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain).padding(.horizontal, 8).padding(.top, 2)
+                    }
+                }
+            }
+            .padding(.horizontal, 6).padding(.bottom, 8)
+            .background(shortcuts(shown))
+            .cascade(1)
+
+            Hairline()
+
+            // Today, and limits.
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(stats.agg.active.clock)
-                                .font(.hud(24, .semibold))
-                                .shadow(color: Category.thinking.color.opacity(0.45), radius: 6)
-                            Text("TODAY").font(.hud(9.5, .semibold)).tracking(0.8).foregroundStyle(HUD.dim)
+                            Text(stats.agg.active.clock).font(.number(20))
+                            Text("today").font(.system(size: 11.5)).foregroundStyle(.secondary)
                         }
                         Text(subline(stats)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
                     if stats.agg.active >= 1 {
-                        RingChart(values: stats.agg.byCategory, lineWidth: 4.5, gapDegrees: 4)
-                            .frame(width: 30, height: 30)
+                        RingChart(values: stats.agg.byCategory, lineWidth: 4, gapDegrees: 4)
+                            .frame(width: 26, height: 26)
                     }
                 }
                 if expanded {
                     VStack(alignment: .leading, spacing: 9) {
                         DayRibbon(sessions: store.sessions, day: now, now: now, barHeight: 20)
                             .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 4)
-                            .background(Color.black)
+                            .background(Color.white.opacity(0.03))
                             .crt()
-                            .overlay(CornerBrackets(length: 5).stroke(HUD.bracket, lineWidth: 1))
                         if stats.agg.active >= 1 { CategoryKey(values: stats.agg.byCategory) }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-            }
-            .padding(.horizontal, 14).padding(.bottom, 11)
-            .cascade(1)
-
-            Hairline()
-
-            // Now
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Eyebrow("Now")
-                    Spacer()
-                    let working = live.filter { $0.live(at: now).isWorking }.count
-                    if working > 0 { Chip(text: "\(working) working", tint: HUD.phosphor) }
-                }
-                if !store.loaded {
-                    Text("Reading transcripts…").font(.system(size: 12)).foregroundStyle(.secondary)
-                } else if live.isEmpty {
-                    Text("All quiet. No agents active in the last 30 minutes.").font(.system(size: 12)).foregroundStyle(.secondary)
-                } else {
-                    let limit = expanded ? 4 : 3
-                    VStack(spacing: 0) {
-                        ForEach(live.prefix(limit)) { s in
-                            LiveRow(session: s, now: now, animated: animated) {
-                                AppController.shared.openDashboard(select: s.id)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, -6)
-                    if live.count > limit {
-                        Text("+\(live.count - limit) more in the dashboard").font(.system(size: 11)).foregroundStyle(.tertiary)
+                if !gauges.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(gauges.prefix(3)) { LimitRow(gauge: $0, now: now) }
                     }
                 }
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            .padding(.horizontal, 14).padding(.vertical, 11)
             .cascade(2)
 
             if expanded {
@@ -172,14 +179,13 @@ struct MenuView: View {
             // Footer: dashboard, and the More / Less control.
             HStack(spacing: 10) {
                 Button { AppController.shared.openDashboard(select: nil) } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "viewfinder")
-                        Text("DASHBOARD").tracking(0.8)
+                    HStack(spacing: 6) {
+                        Text("Open dashboard").font(.system(size: 12, weight: .medium))
+                        Text("⌘D").font(.system(size: 10.5)).foregroundStyle(.tertiary)
                     }
-                    .font(.hud(10.5, .semibold))
-                    .foregroundStyle(HUD.paperInk)
-                    .padding(.horizontal, 9).padding(.vertical, 4)
-                    .background(HUD.paper, in: RoundedRectangle(cornerRadius: 2))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("d")
@@ -192,38 +198,49 @@ struct MenuView: View {
                         Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
                             .rotationEffect(.degrees(expanded ? 180 : 0))
                     }
-                    .foregroundStyle(HUD.dim)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 9).padding(.vertical, 4)
-                    .background(Color.white.opacity(0.06), in: Capsule())
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .help(expanded ? "Show less" : "Show the day ribbon, AI apps and insights")
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, 14).padding(.vertical, 9)
             .cascade(4)
         }
     }
 
-        private func subline(_ s: WindowStats) -> String {
-        guard s.agg.active >= 1 else { return "Nothing yet. Start an agent and it shows up here." }
+    /// ⌘1–⌘9 go to that session, ⌘↩ to the first one (the one that needs you, if any).
+    private func shortcuts(_ sessions: [SessionSummary]) -> some View {
+        ZStack {
+            ForEach(Array(sessions.prefix(9).enumerated()), id: \.element.id) { i, s in
+                Button("") { Jump.go(to: s) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+            }
+            if let first = sessions.first {
+                Button("") { Jump.go(to: first) }.keyboardShortcut(.return, modifiers: .command)
+            }
+        }
+        .opacity(0).allowsHitTesting(false).accessibilityHidden(true)
+    }
+
+    private func status(working: Int, waiting: Int) -> String {
+        var parts: [String] = []
+        if waiting > 0 { parts.append("\(waiting) need\(waiting == 1 ? "s" : "") you") }
+        if working > 0 { parts.append("\(working) working") }
+        return parts.isEmpty ? "All quiet" : parts.joined(separator: " · ")
+    }
+
+    private func subline(_ s: WindowStats) -> String {
+        guard s.agg.active >= 1 else { return "Nothing yet today" }
         var parts = ["\(s.agg.sessionIDs.count) session\(s.agg.sessionIDs.count == 1 ? "" : "s")"]
         if let c = s.change {
-            parts.append("\(c >= 0 ? "↑" : "↓") \(Int(abs(c) * 100))% vs this time yesterday")
+            parts.append("\(c >= 0 ? "↑" : "↓") \(Int(abs(c) * 100))% vs yesterday")
         } else {
             let projects = s.agg.byProject.count
             parts.append("\(projects) project\(projects == 1 ? "" : "s")")
         }
         return parts.joined(separator: " · ")
-    }
-
-    private func rank(_ s: LiveState) -> Int {
-        switch s {
-        case .waitingOnYou: return 0
-        case .running, .thinking: return 1
-        case .finished: return 2
-        case .idle: return 3
-        }
     }
 }
 
@@ -267,7 +284,7 @@ struct LiveRow: View {
                 }
                 // What it's doing, then the command's description (or where it runs).
                 HStack(spacing: 4) {
-                    Text(state.headline.uppercased()).font(.hud(9.5, .semibold)).tracking(0.5)
+                    Text(state.phrase).font(.system(size: 11, weight: .medium))
                         .foregroundStyle(state.color).layoutPriority(1)
                     Text("·").foregroundStyle(.tertiary)
                     Text(state.detail ?? session.place)
