@@ -23,6 +23,8 @@ final class Preferences {
     var pillShape: PillShape { didSet { d.set(pillShape.rawValue, forKey: "pillShape"); Pill.shared.relayout() } }
     /// Drop the pill open on its own when an agent starts waiting on you.
     var pillAutoOpen: Bool { didSet { d.set(pillAutoOpen, forKey: "pillAutoOpen") } }
+    /// Keep the pill up when an agent has finished and is waiting for your reply.
+    var pillOnDone: Bool { didSet { d.set(pillOnDone, forKey: "pillOnDone"); Pill.shared.update() } }
     /// The welcome window has been through once.
     var onboarded: Bool { didSet { d.set(onboarded, forKey: "onboarded") } }
     /// Keep sessions after Claude Code deletes its logs (30 days by default). Read by the store's worker.
@@ -38,6 +40,7 @@ final class Preferences {
         pill = d.object(forKey: "pill") as? Bool ?? true
         pillShape = PillShape(rawValue: d.string(forKey: "pillShape") ?? "") ?? .auto
         pillAutoOpen = d.object(forKey: "pillAutoOpen") as? Bool ?? true
+        pillOnDone = d.object(forKey: "pillOnDone") as? Bool ?? true
         onboarded = d.bool(forKey: "onboarded")
         refreshLogin()
     }
@@ -289,8 +292,13 @@ struct SettingsView: View {
                         Segmented(options: PillShape.allCases, selection: Binding(get: { prefs.pillShape }, set: { prefs.pillShape = $0 })) { $0.title }
                             .fixedSize()
                     }
-                    SettingsRow(symbol: "hand.raised.fill", tint: HUD.alarm, title: "Open when an agent needs you",
-                                subtitle: "Drops down on its own, then tucks away", divider: false) {
+                    SettingsRow(symbol: "checkmark.circle.fill", tint: HUD.phosphor, title: "Show when a task is done",
+                                subtitle: "Stays up while a finished agent waits for your reply") {
+                        HUDSwitch(isOn: prefs.pillOnDone) { prefs.pillOnDone = $0 }
+                    }
+                    SettingsRow(symbol: "hand.raised.fill", tint: HUD.alarm, title: "Drop open on its own",
+                                subtitle: prefs.pillOnDone ? "When an agent needs you or finishes, then tucks away"
+                                                           : "When an agent needs you, then tucks away", divider: false) {
                         HUDSwitch(isOn: prefs.pillAutoOpen) { prefs.pillAutoOpen = $0 }
                     }
                 }

@@ -41,7 +41,10 @@ enum Snapshot {
             let st = PillState()
             st.expanded = open
             if notch { st.notchWidth = 185; st.notchHeight = 32 }
-            save(PillContent(state: st, animated: false, fixedNow: Date()).environment(store).padding(20).background(Color(white: 0.85)),
+            // Exactly the window's margin, over a wallpaper-like ground, so a clipped shadow would show.
+            save(PillContent(state: st, animated: false, fixedNow: Date()).environment(store)
+                    .padding(.horizontal, PillChrome.shadowPad).padding(.bottom, PillChrome.shadowPad)
+                    .background(LinearGradient(colors: [Color(hex: 0x9DB4C8), Color(hex: 0xD8C9B4)], startPoint: .topLeading, endPoint: .bottomTrailing)),
                  name, dir, .dark)
         }
         for i in 0..<3 {

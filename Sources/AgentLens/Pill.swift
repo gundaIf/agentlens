@@ -35,6 +35,7 @@ final class Pill {
     private var panel: PillPanel?
     private var contentSize = CGSize(width: 200, height: 32)
     private var knownWaiting = Set<String>()
+    private var knownDone = Set<String>()
     private var collapseWork: DispatchWorkItem?
     private var hoverWork: DispatchWorkItem?
     private var shrinkWork: DispatchWorkItem?
@@ -55,12 +56,14 @@ final class Pill {
 
     // MARK: Visibility
 
-    /// Sessions the pill cares about: working, waiting, or finished in the last two minutes.
+    /// Sessions the pill cares about: working and waiting on you, plus (with "Show when a task is done")
+    /// finished ones whose turn is yours, until you reply or they go idle after 30 minutes.
     func sessions(now: Date) -> [SessionSummary] {
-        AppController.shared.store.sessions.filter {
+        let showDone = Preferences.shared.pillOnDone
+        return AppController.shared.store.sessions.filter {
             let st = $0.live(at: now)
             if st.isWorking || st.isWaiting { return true }
-            if case .finished(let at) = st { return now.timeIntervalSince(at) < 120 }
+            if case .finished(let at) = st { return showDone || now.timeIntervalSince(at) < 20 }
             return false
         }
         .sorted { ($0.live(at: now).rank, $1.end) < ($1.live(at: now).rank, $0.end) }
@@ -75,6 +78,7 @@ final class Pill {
             panel?.orderOut(nil)
             state.expanded = false
             knownWaiting.removeAll()
+            knownDone.removeAll()
             return
         }
         if panel == nil { makePanel() }
@@ -82,12 +86,16 @@ final class Pill {
             relayout()
             panel?.orderFrontRegardless()
         }
-        // Drop open on its own when something new starts waiting on you.
+        // Drop open on its own when something new starts waiting on you, or (with the option on) finishes.
         let waiting = Set(list.filter { $0.live(at: now).isWaiting }.map(\.id))
-        if Preferences.shared.pillAutoOpen, !waiting.subtracting(knownWaiting).isEmpty {
+        let done = Set(list.filter { if case .finished = $0.live(at: now) { return true }; return false }.map(\.id))
+        let prefs = Preferences.shared
+        let newlyDone = prefs.pillOnDone && !done.subtracting(knownDone).isEmpty
+        if prefs.pillAutoOpen, !waiting.subtracting(knownWaiting).isEmpty || newlyDone {
             expand(auto: true)
         }
         knownWaiting = waiting
+        knownDone = done
     }
 
     func expand(auto: Bool = false) {
@@ -242,7 +250,10 @@ final class PillHostingView<V: View>: NSHostingView<V> {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area { removeTrackingArea(area) }
-        let a = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        // Only the pill: the window also holds a transparent margin for the shadow.
+        let pad = PillChrome.shadowPad
+        let r = NSRect(x: pad, y: pad, width: max(bounds.width - 2 * pad, 1), height: max(bounds.height - pad, 1))
+        let a = NSTrackingArea(rect: r, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
         addTrackingArea(a)
         area = a
     }
@@ -258,6 +269,11 @@ final class PillHostingView<V: View>: NSHostingView<V> {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateTrackingAreas()
+    }
 }
 
 // MARK: - Views
@@ -265,7 +281,8 @@ final class PillHostingView<V: View>: NSHostingView<V> {
 struct PillChrome: View {
     let state: PillState
     let onSize: (CGSize) -> Void
-    static let shadowPad: CGFloat = 18
+    /// Transparent margin around the pill, wide enough that the shadow fades out before the window edge.
+    static let shadowPad: CGFloat = 44
 
     var body: some View {
         PillContent(state: state)
@@ -319,9 +336,12 @@ struct PillContent: View {
         .frame(width: width > 0 ? width : nil)
         .fixedSize(horizontal: width == 0, vertical: true)
         .background(Color.black, in: shape)
-        .overlay(shape.stroke(Color.white.opacity(notch ? 0 : 0.10), lineWidth: 1))
+        .overlay(shape.stroke(Color.white.opacity(notch && !expanded ? 0 : 0.08), lineWidth: 1))
         .clipShape(shape)
-        .shadow(color: .black.opacity(expanded || !notch ? 0.45 : 0), radius: 14, y: 8)
+        // Two soft layers: a wide ambient fall-off and a tight contact shadow. Folded into the notch,
+        // the pill casts none, so it reads as part of the hardware.
+        .shadow(color: .black.opacity(expanded || !notch ? 0.22 : 0), radius: 18, y: 10)
+        .shadow(color: .black.opacity(expanded || !notch ? 0.18 : 0), radius: 2.5, y: 1)
         .contentShape(shape)
         .onTapGesture { expanded ? Pill.shared.collapse() : Pill.shared.expand() }
     }
@@ -337,7 +357,7 @@ struct PillContent: View {
             if notch {
                 Spacer(minLength: state.notchWidth)
             } else {
-                Text(waiting.isEmpty ? (working > 0 ? "\(working) working" : "Done") : "Needs you")
+                Text(waiting.isEmpty ? (working > 0 ? "\(working) working" : "Your turn") : "Needs you")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(waiting.isEmpty ? Color.white : HUD.alarm)
             }
@@ -351,7 +371,12 @@ struct PillContent: View {
                     }
                     .foregroundStyle(.white)
                 } else {
-                    Image(systemName: "checkmark").foregroundStyle(HUD.phosphor)
+                    let done = list.count
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark")
+                        if notch && done > 1 { Text("\(done)") }
+                    }
+                    .foregroundStyle(HUD.phosphor)
                 }
             }
             .font(.hud(12, .semibold))
